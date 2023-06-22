@@ -18,19 +18,15 @@
 //! [`WindowUDF`]: User Defined Window Functions
 
 use std::hash::{DefaultHasher, Hash, Hasher};
+use crate::{
+    expr::WindowFunction, Expr, PartitionEvaluator, PartitionEvaluatorFactory, ReturnTypeFunction, Signature, function::WindowFunctionSimplification
+};
+use arrow::datatypes::DataType;
+use datafusion_common::Result;
 use std::{
     any::Any,
     fmt::{self, Debug, Display, Formatter},
     sync::Arc,
-};
-
-use arrow::datatypes::DataType;
-
-use datafusion_common::Result;
-
-use crate::{
-    function::WindowFunctionSimplification, Expr, PartitionEvaluator,
-    PartitionEvaluatorFactory, ReturnTypeFunction, Signature, WindowFrame,
 };
 
 /// Logical representation of a user-defined window function (UDWF)
@@ -123,28 +119,16 @@ impl WindowUDF {
         Self::new_from_impl(AliasedWindowUDFImpl::new(Arc::clone(&self.inner), aliases))
     }
 
-    /// creates a [`Expr`] that calls the window function given
-    /// the `partition_by`, `order_by`, and `window_frame` definition
+    /// creates a [`expr::WindowFunction`] builder for calling the
+    /// window function given.
+    ///
+    /// Use the methods on the builder to set the `partition_by`,
+    /// `order_by`, and `window_frame` definitions
     ///
     /// This utility allows using the UDWF without requiring access to
     /// the registry, such as with the DataFrame API.
-    pub fn call(
-        &self,
-        args: Vec<Expr>,
-        partition_by: Vec<Expr>,
-        order_by: Vec<Expr>,
-        window_frame: WindowFrame,
-    ) -> Expr {
-        let fun = crate::WindowFunctionDefinition::WindowUDF(Arc::new(self.clone()));
-
-        Expr::WindowFunction(crate::expr::WindowFunction {
-            fun,
-            args,
-            partition_by,
-            order_by,
-            window_frame,
-            null_treatment: None,
-        })
+    pub fn call(&self, args: Vec<Expr>) -> WindowFunction {
+        WindowFunction::new(Arc::new(self.clone()), args)
     }
 
     /// Returns this function's name

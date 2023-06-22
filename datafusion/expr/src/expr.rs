@@ -28,8 +28,7 @@ use crate::expr_fn::binary_expr;
 use crate::logical_plan::Subquery;
 use crate::utils::expr_to_columns;
 use crate::{
-    aggregate_function, built_in_window_function, udaf, ExprSchemable, Operator,
-    Signature,
+    aggregate_function, built_in_window_function, udaf, BuiltInWindowFunction, ExprSchemable, Operator, Signature, WindowUDF
 };
 use crate::{window_frame, Volatility};
 
@@ -754,6 +753,30 @@ impl WindowFunctionDefinition {
     }
 }
 
+impl From<aggregate_function::AggregateFunction> for WindowFunctionDefinition {
+    fn from(value: aggregate_function::AggregateFunction) -> Self {
+        Self::AggregateFunction(value)
+    }
+}
+
+impl From<BuiltInWindowFunction> for WindowFunctionDefinition {
+    fn from(value: BuiltInWindowFunction) -> Self {
+        Self::BuiltInWindowFunction(value)
+    }
+}
+
+impl From<Arc<crate::AggregateUDF>> for WindowFunctionDefinition {
+    fn from(value: Arc<crate::AggregateUDF>) -> Self {
+        Self::AggregateUDF(value)
+    }
+}
+
+impl From<Arc<WindowUDF>> for WindowFunctionDefinition {
+    fn from(value: Arc<WindowUDF>) -> Self {
+        Self::WindowUDF(value)
+    }
+}
+
 impl fmt::Display for WindowFunctionDefinition {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -769,7 +792,30 @@ impl fmt::Display for WindowFunctionDefinition {
     }
 }
 
-/// Window function
+/// Window Function Expression (part of `Expr::WindowFunction`).
+///
+/// Holds the actual actual function to call
+/// [`window_function::WindowFunction`] as well as its arguments
+/// (`args`) and the contents of the `OVER` clause:
+///
+/// 1. `PARTITION BY`
+/// 2. `ORDER BY`
+/// 3. Window frame (e.g. `ROWS 1 PRECEDING AND 1 FOLLOWING`)
+///
+/// See [`Self::build`] to create an [`Expr`]
+///
+/// # Example
+/// ```
+/// # use datafusion_expr::expr::WindowFunction;
+/// // Create FIRST_VALUE(a) OVER (PARTITION BY b ORDER BY c)
+/// let expr: Expr = WindowFunction::new(
+///    BuiltInWindowFunction::FirstValue,
+///    vec![col("a")]
+/// )
+///   .with_partition_by(vec![col("b")])
+///   .with_order_by(vec![col("b")])
+///   .build();
+/// ```
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct WindowFunction {
     /// Name of the function
@@ -787,23 +833,46 @@ pub struct WindowFunction {
 }
 
 impl WindowFunction {
-    /// Create a new Window expression
-    pub fn new(
-        fun: WindowFunctionDefinition,
-        args: Vec<Expr>,
-        partition_by: Vec<Expr>,
-        order_by: Vec<Expr>,
-        window_frame: window_frame::WindowFrame,
-        null_treatment: Option<NullTreatment>,
-    ) -> Self {
+    /// Create a new Window expression with the specified argument an
+    /// empty `OVER` clause
+    pub fn new(fun: impl Into<WindowFunctionDefinition>, args: Vec<Expr>) -> Self {
         Self {
-            fun,
+            fun: fun.into(),
             args,
-            partition_by,
-            order_by,
-            window_frame,
-            null_treatment,
+            partition_by: vec![],
+            order_by: vec![],
+            window_frame: window_frame::WindowFrame::new(Some(false)),
+            null_treatment: None,
         }
+    }
+
+    /// set the partition by expressions
+    pub fn with_partition_by(mut self, partition_by: Vec<Expr>) -> Self {
+        self.partition_by = partition_by;
+        self
+    }
+
+    /// set the order by expressions
+    pub fn with_order_by(mut self, order_by: Vec<Expr>) -> Self {
+        self.order_by = order_by;
+        self
+    }
+
+    /// set the window frame
+    pub fn with_window_frame(mut self, window_frame: window_frame::WindowFrame) -> Self {
+        self.window_frame = window_frame;
+        self
+    }
+
+    /// set the null treatment
+    pub fn with_null_treatment(mut self, null_treatment: Option<NullTreatment>) -> Self {
+        self.null_treatment = null_treatment;
+        self
+    }
+
+    /// convert this WindowFunction into an [`Expr`]
+    pub fn build(self) -> Expr {
+        Expr::WindowFunction(self)
     }
 }
 

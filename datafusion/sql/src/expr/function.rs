@@ -314,23 +314,27 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                         let args =
                             self.function_args_to_expr(args, schema, planner_context)?;
 
-                        Expr::WindowFunction(expr::WindowFunction::new(
-                            WindowFunctionDefinition::AggregateFunction(aggregate_fun),
+                        Expr::WindowFunction(expr::WindowFunction {
+                            fun: WindowFunctionDefinition::AggregateFunction(aggregate_fun),
                             args,
                             partition_by,
                             order_by,
                             window_frame,
                             null_treatment,
-                        ))
+                        })
                     }
-                    _ => Expr::WindowFunction(expr::WindowFunction::new(
+                    _ => Expr::WindowFunction(expr::WindowFunction {
                         fun,
-                        self.function_args_to_expr(args, schema, planner_context)?,
+                        args: self.function_args_to_expr(
+                            args,
+                            schema,
+                            planner_context,
+                        )?,
                         partition_by,
                         order_by,
                         window_frame,
                         null_treatment,
-                    )),
+                    }),
                 };
                 return Ok(expr);
             }

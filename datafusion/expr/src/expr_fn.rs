@@ -17,9 +17,10 @@
 
 //! Functions for creating logical expressions
 
+use crate::{expr, BuiltInWindowFunction};
 use crate::expr::{
     AggregateFunction, BinaryExpr, Cast, Exists, GroupingSet, InList, InSubquery,
-    Placeholder, TryCast, Unnest,
+    Placeholder, TryCast, Unnest
 };
 use crate::function::{
     AccumulatorArgs, AccumulatorFactoryFunction, PartitionEvaluatorFactory,
@@ -181,6 +182,83 @@ pub fn array_agg(expr: Expr) -> Expr {
         None,
         None,
     ))
+}
+
+/// Create an expression to represent the `row_number` window function
+///
+/// Note: call [`expr::WindowFunction::build]` to create an [`Expr`]
+pub fn row_number() -> expr::WindowFunction {
+    expr::WindowFunction::new(BuiltInWindowFunction::RowNumber, vec![])
+}
+
+/// Create an expression to represent the `rank` window function
+///
+/// Note: call [`expr::WindowFunction::build]` to create an [`Expr`]
+pub fn rank() -> expr::WindowFunction {
+    expr::WindowFunction::new(BuiltInWindowFunction::Rank, vec![])
+}
+
+/// Create an expression to represent the `dense_rank` window function
+///
+/// Note: call [`expr::WindowFunction::build]` to create an [`Expr`]
+pub fn dense_rank() -> expr::WindowFunction {
+    expr::WindowFunction::new(BuiltInWindowFunction::DenseRank, vec![])
+}
+
+/// Create an expression to represent the `percent_rank` window function
+///
+/// Note: call [`expr::WindowFunction::build]` to create an [`Expr`]
+pub fn percent_rank() -> expr::WindowFunction {
+    expr::WindowFunction::new(BuiltInWindowFunction::PercentRank, vec![])
+}
+
+/// Create an expression to represent the `cume_dist` window function
+///
+/// Note: call [`expr::WindowFunction::build]` to create an [`Expr`]
+pub fn cume_dist(arg: Expr) -> expr::WindowFunction {
+    expr::WindowFunction::new(BuiltInWindowFunction::CumeDist, vec![arg])
+}
+
+/// Create an expression to represent the `ntile` window function
+///
+/// Note: call [`expr::WindowFunction::build]` to create an [`Expr`]
+pub fn ntile(arg: Expr) -> expr::WindowFunction {
+    expr::WindowFunction::new(BuiltInWindowFunction::Ntile, vec![arg])
+}
+
+/// Create an expression to represent the `lag` window function
+///
+/// Note: call [`expr::WindowFunction::build]` to create an [`Expr`]
+pub fn lag(arg: Expr) -> expr::WindowFunction {
+    expr::WindowFunction::new(BuiltInWindowFunction::Lag, vec![arg])
+}
+
+/// Create an expression to represent the `lead` window function
+///
+/// Note: call [`expr::WindowFunction::build]` to create an [`Expr`]
+pub fn lead(arg: Expr) -> expr::WindowFunction {
+    expr::WindowFunction::new(BuiltInWindowFunction::Lead, vec![arg])
+}
+
+/// Create an expression to represent the `first_value` window function
+///
+/// Note: call [`expr::WindowFunction::build]` to create an [`Expr`]
+pub fn first_value(arg: Expr) -> expr::WindowFunction {
+    expr::WindowFunction::new(BuiltInWindowFunction::FirstValue, vec![arg])
+}
+
+/// Create an expression to represent the `last_value` window function
+///
+/// Note: call [`expr::WindowFunction::build]` to create an [`Expr`]
+pub fn last_value(arg: Expr) -> expr::WindowFunction {
+    expr::WindowFunction::new(BuiltInWindowFunction::LastValue, vec![arg])
+}
+
+/// Create an expression to represent the `nth_value` window function
+///
+/// Note: call [`expr::WindowFunction::build]` to create an [`Expr`]
+pub fn nth_value(arg: Expr) -> expr::WindowFunction {
+    expr::WindowFunction::new(BuiltInWindowFunction::NthValue, vec![arg])
 }
 
 /// Return a new expression with bitwise AND
@@ -367,6 +445,11 @@ pub fn unnest(expr: Expr) -> Expr {
     Expr::Unnest(Unnest {
         expr: Box::new(expr),
     })
+}
+
+/// Create a window expr from
+pub fn window_expr(window_function: impl Into<crate::expr::WindowFunction>) -> Expr {
+    Expr::WindowFunction(window_function.into())
 }
 
 /// Convenience method to create a new user defined scalar function (UDF) with a

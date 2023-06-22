@@ -294,14 +294,14 @@ impl TreeNode for Expr {
                 transform_vec(order_by, &mut f)
             )?
             .update_data(|(new_args, new_partition_by, new_order_by)| {
-                Expr::WindowFunction(WindowFunction::new(
+                Expr::WindowFunction(WindowFunction{
                     fun,
-                    new_args,
-                    new_partition_by,
-                    new_order_by,
+                    args: new_args,
+                    partition_by: new_partition_by,
+                    order_by: new_order_by,
                     window_frame,
                     null_treatment,
-                ))
+            })
             }),
             Expr::AggregateFunction(AggregateFunction {
                 args,

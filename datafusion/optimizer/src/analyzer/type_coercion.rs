@@ -437,7 +437,7 @@ impl<'a> TreeNodeRewriter for TypeCoercionRewriter<'a> {
                 null_treatment,
             }) => {
                 let window_frame =
-                    coerce_window_frame(window_frame, self.schema, &order_by)?;
+                    coerce_window_frame(window_frame, &self.schema, &order_by)?;
 
                 let args = match &fun {
                     expr::WindowFunctionDefinition::AggregateFunction(fun) => {
@@ -458,14 +458,15 @@ impl<'a> TreeNodeRewriter for TypeCoercionRewriter<'a> {
                     _ => args,
                 };
 
-                Ok(Transformed::yes(Expr::WindowFunction(WindowFunction::new(
+                let expr = Expr::WindowFunction(WindowFunction {
                     fun,
                     args,
                     partition_by,
                     order_by,
                     window_frame,
                     null_treatment,
-                ))))
+                });
+                Ok(Transformed::yes(expr))
             }
             Expr::Alias(_)
             | Expr::Column(_)

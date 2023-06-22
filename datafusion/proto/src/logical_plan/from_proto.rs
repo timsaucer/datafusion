@@ -307,19 +307,17 @@ pub fn parse_expr(
                 window_expr_node::WindowFunction::AggrFunction(i) => {
                     let aggr_function = parse_i32_to_aggregate_function(i)?;
 
-                    Ok(Expr::WindowFunction(WindowFunction::new(
-                        expr::WindowFunctionDefinition::AggregateFunction(aggr_function),
-                        vec![parse_required_expr(
-                            expr.expr.as_deref(),
-                            registry,
-                            "expr",
-                            codec,
-                        )?],
-                        partition_by,
-                        order_by,
-                        window_frame,
-                        None,
-                    )))
+                    Ok(WindowFunction::new(
+                        datafusion_expr::expr::WindowFunctionDefinition::AggregateFunction(
+                            aggr_function,
+                        ),
+                        vec![parse_required_expr(expr.expr.as_deref(), registry, "expr", codec)?])
+                        .with_partition_by(partition_by)
+                        .with_order_by(order_by)
+                        .with_window_frame(window_frame)
+                        .with_null_treatment(None)
+                        .build()
+                    )
                 }
                 window_expr_node::WindowFunction::BuiltInFunction(i) => {
                     let built_in_function = protobuf::BuiltInWindowFunction::try_from(*i)
@@ -331,16 +329,17 @@ pub fn parse_expr(
                             .map(|e| vec![e])
                             .unwrap_or_else(Vec::new);
 
-                    Ok(Expr::WindowFunction(WindowFunction::new(
-                        expr::WindowFunctionDefinition::BuiltInWindowFunction(
+                    Ok(WindowFunction::new(
+                        datafusion_expr::expr::WindowFunctionDefinition::BuiltInWindowFunction(
                             built_in_function,
                         ),
-                        args,
-                        partition_by,
-                        order_by,
-                        window_frame,
-                        null_treatment,
-                    )))
+                        args)
+                        .with_partition_by(partition_by)
+                        .with_order_by(order_by)
+                        .with_window_frame(window_frame)
+                        .with_null_treatment(null_treatment)
+                        .build()
+                    )
                 }
                 window_expr_node::WindowFunction::Udaf(udaf_name) => {
                     let udaf_function = match &expr.fun_definition {
@@ -352,14 +351,17 @@ pub fn parse_expr(
                         parse_optional_expr(expr.expr.as_deref(), registry, codec)?
                             .map(|e| vec![e])
                             .unwrap_or_else(Vec::new);
-                    Ok(Expr::WindowFunction(WindowFunction::new(
-                        expr::WindowFunctionDefinition::AggregateUDF(udaf_function),
-                        args,
-                        partition_by,
-                        order_by,
-                        window_frame,
-                        None,
-                    )))
+                    Ok(WindowFunction::new(
+                        datafusion_expr::expr::WindowFunctionDefinition::AggregateUDF(
+                            udaf_function,
+                        ),
+                        args)
+                        .with_partition_by(partition_by)
+                        .with_order_by(order_by)
+                        .with_window_frame(window_frame)
+                        .with_null_treatment(None)
+                        .build()
+                    )
                 }
                 window_expr_node::WindowFunction::Udwf(udwf_name) => {
                     let udwf_function = match &expr.fun_definition {
@@ -371,14 +373,17 @@ pub fn parse_expr(
                         parse_optional_expr(expr.expr.as_deref(), registry, codec)?
                             .map(|e| vec![e])
                             .unwrap_or_else(Vec::new);
-                    Ok(Expr::WindowFunction(WindowFunction::new(
-                        expr::WindowFunctionDefinition::WindowUDF(udwf_function),
-                        args,
-                        partition_by,
-                        order_by,
-                        window_frame,
-                        None,
-                    )))
+                    Ok(WindowFunction::new(
+                        datafusion_expr::expr::WindowFunctionDefinition::WindowUDF(
+                            udwf_function,
+                        ),
+                        args)
+                        .with_partition_by(partition_by)
+                        .with_order_by(order_by)
+                        .with_window_frame(window_frame)
+                        .with_null_treatment(None)
+                        .build()
+                    )
                 }
             }
         }
