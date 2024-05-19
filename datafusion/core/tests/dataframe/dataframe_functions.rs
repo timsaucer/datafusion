@@ -31,14 +31,15 @@ use datafusion::prelude::*;
 
 use datafusion::assert_batches_eq;
 use datafusion_common::{DFSchema, ScalarValue};
-use datafusion_expr::expr::Alias;
 use datafusion_expr::ExprSchemable;
 use datafusion_functions_aggregate::expr_fn::{approx_median, approx_percentile_cont};
+use datafusion_expr::{expr::Alias, WindowFrame};
 
 fn test_schema() -> SchemaRef {
     Arc::new(Schema::new(vec![
         Field::new("a", DataType::Utf8, false),
         Field::new("b", DataType::Int32, false),
+        Field::new("c", DataType::Int32, false),
         Field::new("l", DataType::new_list(DataType::Int32, true), true),
     ]))
 }
@@ -57,6 +58,7 @@ async fn create_test_table() -> Result<DataFrame> {
                 "123AbcDef",
             ])),
             Arc::new(Int32Array::from(vec![1, 10, 10, 100])),
+            Arc::new(Int32Array::from(vec![1, 1, 1, 10])),
             Arc::new(ListArray::from_iter_primitive::<Int32Type, _, _>(vec![
                 Some(vec![Some(0), Some(1), Some(2)]),
                 None,
@@ -1083,6 +1085,272 @@ async fn test_fn_array_to_string() -> Result<()> {
         "| 6***7                               |",
         "+-------------------------------------+",
     ];
+    assert_fn_batches!(expr, expected);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_fn_row_number() -> Result<()> {
+    let expr = row_number()
+        .with_partition_by(vec![col("c")])
+        .with_order_by(vec![col("b").sort(true, true)])
+        .build();
+
+    let expected = [
+        "+------------------------------------------------------------------------------------------------------------------------+",
+        "| ROW_NUMBER() PARTITION BY [test.c] ORDER BY [test.b ASC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW |",
+        "+------------------------------------------------------------------------------------------------------------------------+",
+        "| 1                                                                                                                      |",
+        "| 2                                                                                                                      |",
+        "| 3                                                                                                                      |",
+        "| 1                                                                                                                      |",
+        "+------------------------------------------------------------------------------------------------------------------------+",
+    ];
+
+    assert_fn_batches!(expr, expected);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_fn_rank() -> Result<()> {
+    let expr = rank()
+        .with_order_by(vec![col("b").sort(true, true)])
+        .build();
+
+    let expected = [
+        "+--------------------------------------------------------------------------------------------+",
+        "| RANK() ORDER BY [test.b ASC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW |",
+        "+--------------------------------------------------------------------------------------------+",
+        "| 1                                                                                          |",
+        "| 2                                                                                          |",
+        "| 2                                                                                          |",
+        "| 4                                                                                          |",
+        "+--------------------------------------------------------------------------------------------+",
+    ];
+
+    assert_fn_batches!(expr, expected);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_fn_dense_rank() -> Result<()> {
+    let expr = dense_rank()
+        .with_order_by(vec![col("b").sort(true, true)])
+        .build();
+
+    let expected = [
+        "+--------------------------------------------------------------------------------------------------+",
+        "| DENSE_RANK() ORDER BY [test.b ASC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW |",
+        "+--------------------------------------------------------------------------------------------------+",
+        "| 1                                                                                                |",
+        "| 2                                                                                                |",
+        "| 2                                                                                                |",
+        "| 3                                                                                                |",
+        "+--------------------------------------------------------------------------------------------------+",
+    ];
+
+    assert_fn_batches!(expr, expected);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_fn_ntile() -> Result<()> {
+    let expr = ntile(lit(2i64))
+        .with_partition_by(vec![col("c")])
+        .with_order_by(vec![col("b").sort(true, true)])
+        .build();
+
+    let expected = [
+        "+---------------------------------------------------------------------------------------------------------------------------+",
+        "| NTILE(Int64(2)) PARTITION BY [test.c] ORDER BY [test.b ASC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW |",
+        "+---------------------------------------------------------------------------------------------------------------------------+",
+        "| 1                                                                                                                         |",
+        "| 1                                                                                                                         |",
+        "| 2                                                                                                                         |",
+        "| 1                                                                                                                         |",
+        "+---------------------------------------------------------------------------------------------------------------------------+",
+    ];
+
+    assert_fn_batches!(expr, expected);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_fn_cume_dist() -> Result<()> {
+    let expr = cume_dist()
+        .with_partition_by(vec![col("c")])
+        .with_order_by(vec![col("b").sort(true, true)])
+        .build();
+
+    let expected = [
+        "+-----------------------------------------------------------------------------------------------------------------------+",
+        "| CUME_DIST() PARTITION BY [test.c] ORDER BY [test.b ASC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW |",
+        "+-----------------------------------------------------------------------------------------------------------------------+",
+        "| 0.3333333333333333                                                                                                    |",
+        "| 1.0                                                                                                                   |",
+        "| 1.0                                                                                                                   |",
+        "| 1.0                                                                                                                   |",
+        "+-----------------------------------------------------------------------------------------------------------------------+",
+    ];
+
+    assert_fn_batches!(expr, expected);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_fn_percent_rank() -> Result<()> {
+    let expr = percent_rank()
+        .with_partition_by(vec![col("c")])
+        .with_order_by(vec![col("b").sort(true, true)])
+        .build();
+
+    let expected = [
+        "+--------------------------------------------------------------------------------------------------------------------------+",
+        "| PERCENT_RANK() PARTITION BY [test.c] ORDER BY [test.b ASC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW |",
+        "+--------------------------------------------------------------------------------------------------------------------------+",
+        "| 0.0                                                                                                                      |",
+        "| 0.5                                                                                                                      |",
+        "| 0.5                                                                                                                      |",
+        "| 0.0                                                                                                                      |",
+        "+--------------------------------------------------------------------------------------------------------------------------+",
+    ];
+
+    assert_fn_batches!(expr, expected);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_fn_lag() -> Result<()> {
+    let expr = lag(col("b"), Some(1), Some(ScalarValue::Int32(Some(-1))))
+        .with_partition_by(vec![col("c")])
+        .with_order_by(vec![col("b").sort(true, true)])
+        .build();
+
+    let expected = [
+        "+------------------------------------------------------------------------------------------------------------------------------------------+",
+        "| LAG(test.b,Int64(1),Int32(-1)) PARTITION BY [test.c] ORDER BY [test.b ASC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW |",
+        "+------------------------------------------------------------------------------------------------------------------------------------------+",
+        "| -1                                                                                                                                       |",
+        "| 1                                                                                                                                        |",
+        "| 10                                                                                                                                       |",
+        "| -1                                                                                                                                       |",
+        "+------------------------------------------------------------------------------------------------------------------------------------------+",
+    ];
+
+    assert_fn_batches!(expr, expected);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_fn_lead() -> Result<()> {
+    let expr = lead(col("b"), Some(1), Some(ScalarValue::Int32(Some(-1))))
+        .with_partition_by(vec![col("c")])
+        .with_order_by(vec![col("b").sort(true, true)])
+        .build();
+
+    let expected = [
+        "+-------------------------------------------------------------------------------------------------------------------------------------------+",
+        "| LEAD(test.b,Int64(1),Int32(-1)) PARTITION BY [test.c] ORDER BY [test.b ASC NULLS FIRST] RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW |",
+        "+-------------------------------------------------------------------------------------------------------------------------------------------+",
+        "| 10                                                                                                                                        |",
+        "| 10                                                                                                                                        |",
+        "| -1                                                                                                                                        |",
+        "| -1                                                                                                                                        |",
+        "+-------------------------------------------------------------------------------------------------------------------------------------------+",
+    ];
+
+    assert_fn_batches!(expr, expected);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_fn_first_value() -> Result<()> {
+    let expr = first_value(col("b"))
+        .with_partition_by(vec![col("c")])
+        .with_order_by(vec![col("b").sort(true, true)])
+        .with_window_frame(WindowFrame::new_bounds(
+            datafusion_expr::WindowFrameUnits::Rows,
+            datafusion_expr::WindowFrameBound::Preceding(ScalarValue::Null),
+            datafusion_expr::WindowFrameBound::Following(ScalarValue::Null),
+        ))
+        .build();
+
+    let expected = [
+        "+--------------------------------------------------------------------------------------------------------------------------------------+",
+        "| FIRST_VALUE(test.b) PARTITION BY [test.c] ORDER BY [test.b ASC NULLS FIRST] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING |",
+        "+--------------------------------------------------------------------------------------------------------------------------------------+",
+        "| 1                                                                                                                                    |",
+        "| 1                                                                                                                                    |",
+        "| 1                                                                                                                                    |",
+        "| 100                                                                                                                                  |",
+        "+--------------------------------------------------------------------------------------------------------------------------------------+",
+    ];
+
+    assert_fn_batches!(expr, expected);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_fn_last_value() -> Result<()> {
+    let expr = last_value(col("b"))
+        .with_partition_by(vec![col("c")])
+        .with_order_by(vec![col("b").sort(true, true)])
+        .with_window_frame(WindowFrame::new_bounds(
+            datafusion_expr::WindowFrameUnits::Rows,
+            datafusion_expr::WindowFrameBound::Preceding(ScalarValue::Null),
+            datafusion_expr::WindowFrameBound::Following(ScalarValue::Null),
+        ))
+        .build();
+
+    let expected = [
+        "+-------------------------------------------------------------------------------------------------------------------------------------+",
+        "| LAST_VALUE(test.b) PARTITION BY [test.c] ORDER BY [test.b ASC NULLS FIRST] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING |",
+        "+-------------------------------------------------------------------------------------------------------------------------------------+",
+        "| 10                                                                                                                                  |",
+        "| 10                                                                                                                                  |",
+        "| 10                                                                                                                                  |",
+        "| 100                                                                                                                                 |",
+        "+-------------------------------------------------------------------------------------------------------------------------------------+",
+    ];
+
+    assert_fn_batches!(expr, expected);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_fn_nth_value() -> Result<()> {
+    let expr = nth_value(col("b"), 2)
+        .with_partition_by(vec![col("c")])
+        .with_order_by(vec![col("b").sort(true, true)])
+        .with_window_frame(WindowFrame::new_bounds(
+            datafusion_expr::WindowFrameUnits::Rows,
+            datafusion_expr::WindowFrameBound::Preceding(ScalarValue::Null),
+            datafusion_expr::WindowFrameBound::Following(ScalarValue::Null),
+        ))
+        .build();
+
+    let expected = [
+        "+---------------------------------------------------------------------------------------------------------------------------------------------+",
+        "| NTH_VALUE(test.b,Int64(2)) PARTITION BY [test.c] ORDER BY [test.b ASC NULLS FIRST] ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING |",
+        "+---------------------------------------------------------------------------------------------------------------------------------------------+",
+        "| 10                                                                                                                                          |",
+        "| 10                                                                                                                                          |",
+        "| 10                                                                                                                                          |",
+        "|                                                                                                                                             |",
+        "+---------------------------------------------------------------------------------------------------------------------------------------------+",
+    ];
+
     assert_fn_batches!(expr, expected);
 
     Ok(())

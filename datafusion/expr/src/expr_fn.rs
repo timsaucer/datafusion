@@ -19,7 +19,7 @@
 
 use crate::expr::{
     AggregateFunction, BinaryExpr, Cast, Exists, GroupingSet, InList, InSubquery,
-    Placeholder, TryCast, Unnest
+    Placeholder, TryCast, Unnest,
 };
 use crate::function::{
     AccumulatorArgs, AccumulatorFactoryFunction, PartitionEvaluatorFactory,
@@ -278,7 +278,7 @@ pub fn last_value(arg: Expr) -> expr::WindowFunction {
 /// Create an expression to represent the `nth_value` window function
 ///
 /// Note: call [`expr::WindowFunction::build]` to create an [`Expr`]
-pub fn nth_value(arg: Expr, n: u32) -> expr::WindowFunction {
+pub fn nth_value(arg: Expr, n: i64) -> expr::WindowFunction {
     expr::WindowFunction::new(BuiltInWindowFunction::NthValue, vec![arg, n.lit()])
 }
 
