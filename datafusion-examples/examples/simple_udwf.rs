@@ -26,7 +26,7 @@ use arrow_schema::DataType;
 use datafusion::error::Result;
 use datafusion::prelude::*;
 use datafusion_common::ScalarValue;
-use datafusion_expr::{PartitionEvaluator, Volatility, WindowFrame};
+use datafusion_expr::{PartitionEvaluator, Volatility};
 
 // create local execution context with `cars.csv` registered as a table named `cars`
 async fn create_context() -> Result<SessionContext> {
@@ -118,7 +118,7 @@ async fn main() -> Result<()> {
     df.show().await?;
 
     // Now, run the function using the DataFrame API:
-    let window_expr = smooth_it()
+    let window_expr = smooth_it
         // smooth_it(speed)
         .call(vec![col("speed")])
         .with_partition_by(vec![col("car")])

@@ -2036,28 +2036,28 @@ fn roundtrip_window() {
     let ctx = SessionContext::new();
 
     // 1. without window_frame
-    let test_expr1 = Expr::WindowFunction(expr::WindowFunction::new(
-        WindowFunctionDefinition::BuiltInWindowFunction(
+    let test_expr1 = Expr::WindowFunction(expr::WindowFunction {
+        fun: WindowFunctionDefinition::BuiltInWindowFunction(
             datafusion_expr::BuiltInWindowFunction::Rank,
         ),
-        vec![],
-        vec![col("col1")],
-        vec![col("col2")],
-        WindowFrame::new(Some(false)),
-        None,
-    ));
+        args: vec![],
+        partition_by: vec![col("col1")],
+        order_by: vec![col("col2")],
+        window_frame: WindowFrame::new(Some(false)),
+        null_treatment: None,
+    });
 
     // 2. with default window_frame
-    let test_expr2 = Expr::WindowFunction(expr::WindowFunction::new(
-        WindowFunctionDefinition::BuiltInWindowFunction(
+    let test_expr2 = Expr::WindowFunction(expr::WindowFunction {
+        fun: WindowFunctionDefinition::BuiltInWindowFunction(
             datafusion_expr::BuiltInWindowFunction::Rank,
         ),
-        vec![],
-        vec![col("col1")],
-        vec![col("col2")],
-        WindowFrame::new(Some(false)),
-        None,
-    ));
+        args: vec![],
+        partition_by: vec![col("col1")],
+        order_by: vec![col("col2")],
+        window_frame: WindowFrame::new(Some(false)),
+        null_treatment: None,
+    });
 
     // 3. with window_frame with row numbers
     let range_number_frame = WindowFrame::new_bounds(
@@ -2066,16 +2066,16 @@ fn roundtrip_window() {
         WindowFrameBound::Following(ScalarValue::UInt64(Some(2))),
     );
 
-    let test_expr3 = Expr::WindowFunction(expr::WindowFunction::new(
-        WindowFunctionDefinition::BuiltInWindowFunction(
+    let test_expr3 = Expr::WindowFunction(expr::WindowFunction {
+        fun: WindowFunctionDefinition::BuiltInWindowFunction(
             datafusion_expr::BuiltInWindowFunction::Rank,
         ),
-        vec![],
-        vec![col("col1")],
-        vec![col("col2")],
-        range_number_frame,
-        None,
-    ));
+        args: vec![],
+        partition_by: vec![col("col1")],
+        order_by: vec![col("col2")],
+        window_frame: range_number_frame,
+        null_treatment: None,
+    });
 
     // 4. test with AggregateFunction
     let row_number_frame = WindowFrame::new_bounds(
@@ -2084,14 +2084,14 @@ fn roundtrip_window() {
         WindowFrameBound::Following(ScalarValue::UInt64(Some(2))),
     );
 
-    let test_expr4 = Expr::WindowFunction(expr::WindowFunction::new(
-        WindowFunctionDefinition::AggregateFunction(AggregateFunction::Max),
-        vec![col("col1")],
-        vec![col("col1")],
-        vec![col("col2")],
-        row_number_frame.clone(),
-        None,
-    ));
+    let test_expr4 = Expr::WindowFunction(expr::WindowFunction {
+        fun: WindowFunctionDefinition::AggregateFunction(AggregateFunction::Max),
+        args: vec![col("col1")],
+        partition_by: vec![col("col1")],
+        order_by: vec![col("col2")],
+        window_frame: row_number_frame.clone(),
+        null_treatment: None,
+    });
 
     // 5. test with AggregateUDF
     #[derive(Debug)]
@@ -2133,14 +2133,14 @@ fn roundtrip_window() {
         Arc::new(vec![DataType::Float64, DataType::UInt32]),
     );
 
-    let test_expr5 = Expr::WindowFunction(expr::WindowFunction::new(
-        WindowFunctionDefinition::AggregateUDF(Arc::new(dummy_agg.clone())),
-        vec![col("col1")],
-        vec![col("col1")],
-        vec![col("col2")],
-        row_number_frame.clone(),
-        None,
-    ));
+    let test_expr5 = Expr::WindowFunction(expr::WindowFunction {
+        fun: WindowFunctionDefinition::AggregateUDF(Arc::new(dummy_agg.clone())),
+        args: vec![col("col1")],
+        partition_by: vec![col("col1")],
+        order_by: vec![col("col2")],
+        window_frame: row_number_frame.clone(),
+        null_treatment: None,
+    });
     ctx.register_udaf(dummy_agg);
 
     // 6. test with WindowUDF
@@ -2209,23 +2209,24 @@ fn roundtrip_window() {
 
     let dummy_window_udf = WindowUDF::from(SimpleWindowUDF::new());
 
-    let test_expr6 = Expr::WindowFunction(expr::WindowFunction::new(
-        WindowFunctionDefinition::WindowUDF(Arc::new(dummy_window_udf.clone())),
-        vec![col("col1")],
-        vec![col("col1")],
-        vec![col("col2")],
-        row_number_frame.clone(),
-        None,
-    ));
+    let test_expr6 = Expr::WindowFunction(expr::WindowFunction {
+        fun: WindowFunctionDefinition::WindowUDF(Arc::new(dummy_window_udf.clone())),
+        args: vec![col("col1")],
+        partition_by: vec![col("col1")],
+        order_by: vec![col("col2")],
+        window_frame: row_number_frame.clone(),
+        null_treatment: None,
+    });
 
-    let text_expr7 = Expr::WindowFunction(expr::WindowFunction::new(
-        WindowFunctionDefinition::AggregateUDF(avg_udaf()),
-        vec![col("col1")],
-        vec![],
-        vec![],
-        row_number_frame.clone(),
-        None,
-    ));
+    let test_expr7 = Expr::WindowFunction(expr::WindowFunction {
+        fun: WindowFunctionDefinition::AggregateUDF(avg_udaf()),
+        args: vec![col("col1")],
+        partition_by: vec![],
+        order_by: vec![],
+        window_frame: row_number_frame,
+        null_treatment: None,
+    });
+
 
     ctx.register_udwf(dummy_window_udf);
 
@@ -2235,5 +2236,5 @@ fn roundtrip_window() {
     roundtrip_expr_test(test_expr4, ctx.clone());
     roundtrip_expr_test(test_expr5, ctx.clone());
     roundtrip_expr_test(test_expr6, ctx.clone());
-    roundtrip_expr_test(text_expr7, ctx);
+    roundtrip_expr_test(test_expr7, ctx);
 }

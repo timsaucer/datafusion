@@ -180,18 +180,18 @@ async fn test_count_wildcard_on_window() -> Result<()> {
     let df_results = ctx
         .table("t1")
         .await?
-        .select(vec![Expr::WindowFunction(expr::WindowFunction::new(
-            WindowFunctionDefinition::AggregateUDF(count_udaf()),
-            vec![wildcard()],
-            vec![],
-            vec![Expr::Sort(Sort::new(Box::new(col("a")), false, true))],
-            WindowFrame::new_bounds(
+        .select(vec![Expr::WindowFunction(expr::WindowFunction {
+            fun: WindowFunctionDefinition::AggregateUDF(count_udaf()),
+            args: vec![wildcard()],
+            partition_by: vec![],
+            order_by: vec![Expr::Sort(Sort::new(Box::new(col("a")), false, true))],
+            window_frame: WindowFrame::new_bounds(
                 WindowFrameUnits::Range,
                 WindowFrameBound::Preceding(ScalarValue::UInt32(Some(6))),
                 WindowFrameBound::Following(ScalarValue::UInt32(Some(2))),
             ),
-            None,
-        ))])?
+            null_treatment: None,
+        })])?
         .explain(false, false)?
         .collect()
         .await?;
