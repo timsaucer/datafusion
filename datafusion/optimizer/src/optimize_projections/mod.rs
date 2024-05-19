@@ -1916,23 +1916,23 @@ mod tests {
     fn test_window() -> Result<()> {
         let table_scan = test_table_scan()?;
 
-        let max1 = Expr::WindowFunction(expr::WindowFunction::new(
-            WindowFunctionDefinition::AggregateFunction(AggregateFunction::Max),
-            vec![col("test.a")],
-            vec![col("test.b")],
-            vec![],
-            WindowFrame::new(None),
-            None,
-        ));
+        let max1 = Expr::WindowFunction(expr::WindowFunction {
+            fun: WindowFunctionDefinition::AggregateFunction(AggregateFunction::Max),
+            args: vec![col("test.a")],
+            partition_by: vec![col("test.b")],
+            order_by: vec![],
+            window_frame: WindowFrame::new(None),
+            null_treatment: None,
+        });
 
-        let max2 = Expr::WindowFunction(expr::WindowFunction::new(
-            WindowFunctionDefinition::AggregateFunction(AggregateFunction::Max),
-            vec![col("test.b")],
-            vec![],
-            vec![],
-            WindowFrame::new(None),
-            None,
-        ));
+        let max2 = Expr::WindowFunction(expr::WindowFunction {
+            fun: WindowFunctionDefinition::AggregateFunction(AggregateFunction::Max),
+            args: vec![col("test.b")],
+            partition_by: vec![],
+            order_by: vec![],
+            window_frame: WindowFrame::new(None),
+            null_treatment: None,
+        });
         let col1 = col(max1.display_name()?);
         let col2 = col(max2.display_name()?);
 

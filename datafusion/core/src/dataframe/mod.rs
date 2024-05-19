@@ -1879,16 +1879,16 @@ mod tests {
     async fn select_with_window_exprs() -> Result<()> {
         // build plan using Table API
         let t = test_table().await?;
-        let first_row = Expr::WindowFunction(expr::WindowFunction::new(
-            WindowFunctionDefinition::BuiltInWindowFunction(
+        let first_row = Expr::WindowFunction(expr::WindowFunction {
+            fun: WindowFunctionDefinition::BuiltInWindowFunction(
                 BuiltInWindowFunction::FirstValue,
             ),
-            vec![col("aggregate_test_100.c1")],
-            vec![col("aggregate_test_100.c2")],
-            vec![],
-            WindowFrame::new(None),
-            None,
-        ));
+            args: vec![col("aggregate_test_100.c1")],
+            partition_by: vec![col("aggregate_test_100.c2")],
+            order_by: vec![],
+            window_frame: WindowFrame::new(None),
+            null_treatment: None,
+        });
         let t2 = t.select(vec![col("c1"), first_row])?;
         let plan = t2.plan.clone();
 

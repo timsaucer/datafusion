@@ -220,18 +220,20 @@ mod tests {
         let table_scan = test_table_scan()?;
 
         let plan = LogicalPlanBuilder::from(table_scan)
-            .window(vec![Expr::WindowFunction(expr::WindowFunction::new(
-                WindowFunctionDefinition::AggregateUDF(count_udaf()),
-                vec![wildcard()],
-                vec![],
-                vec![Expr::Sort(Sort::new(Box::new(col("a")), false, true))],
-                WindowFrame::new_bounds(
+            .window(vec![Expr::WindowFunction(expr::WindowFunction {
+                fun: WindowFunctionDefinition::AggregateFunction(
+                    AggregateFunction::Count,
+                ),
+                args: vec![wildcard()],
+                partition_by: vec![],
+                order_by: vec![Expr::Sort(Sort::new(Box::new(col("a")), false, true))],
+                window_frame: WindowFrame::new_bounds(
                     WindowFrameUnits::Range,
                     WindowFrameBound::Preceding(ScalarValue::UInt32(Some(6))),
                     WindowFrameBound::Following(ScalarValue::UInt32(Some(2))),
                 ),
-                None,
-            ))])?
+                null_treatment: None,
+            })])?
             .project(vec![count(wildcard())])?
             .build()?;
 
