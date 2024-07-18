@@ -1292,7 +1292,7 @@ mod tests {
             null_treatment: None,
         });
         let sum4 = Expr::WindowFunction(expr::WindowFunction {
-            fun: WindowFunctionDefinition::AggregateFunction(AggregateFunction::Sum),
+            fun: WindowFunctionDefinition::AggregateUDF(sum_udaf()),
             args: vec![col("age")],
             partition_by: vec![],
             order_by: vec![],
@@ -1339,7 +1339,7 @@ mod tests {
             null_treatment: None,
         });
         let sum4 = Expr::WindowFunction(expr::WindowFunction {
-            fun: WindowFunctionDefinition::AggregateFunction(AggregateFunction::Sum),
+            fun: WindowFunctionDefinition::AggregateUDF(sum_udaf()),
             args: vec![col("age")],
             partition_by: vec![],
             order_by: vec![name_desc.clone(), age_asc.clone(), created_at_desc.clone()],
@@ -1382,7 +1382,7 @@ mod tests {
                 null_treatment: None,
             }),
             Expr::WindowFunction(expr::WindowFunction {
-                fun: WindowFunctionDefinition::AggregateFunction(AggregateFunction::Sum),
+                fun: WindowFunctionDefinition::AggregateUDF(sum_udaf()),
                 args: vec![col("age")],
                 partition_by: vec![],
                 order_by: vec![

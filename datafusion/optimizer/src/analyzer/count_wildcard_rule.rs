@@ -221,9 +221,7 @@ mod tests {
 
         let plan = LogicalPlanBuilder::from(table_scan)
             .window(vec![Expr::WindowFunction(expr::WindowFunction {
-                fun: WindowFunctionDefinition::AggregateFunction(
-                    AggregateFunction::Count,
-                ),
+                fun: WindowFunctionDefinition::AggregateUDF(count_udaf()),
                 args: vec![wildcard()],
                 partition_by: vec![],
                 order_by: vec![Expr::Sort(Sort::new(Box::new(col("a")), false, true))],
