@@ -27,6 +27,7 @@ pub mod session_config;
 pub mod signature;
 pub mod table_provider;
 pub mod table_source;
+pub mod udaf;
 pub mod udf;
 pub mod util;
 
