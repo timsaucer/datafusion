@@ -265,7 +265,7 @@ unsafe extern "C" fn set_task_ctx_provider_fn_wrapper(
 ) -> FFI_PhysicalExtensionCodec {
     let codec = codec.clone();
     let private_data = codec.private_data as *mut PhysicalExtensionCodecPrivateData;
-    (*private_data).task_ctx_provider = provider.into();
+    (*private_data).task_ctx_provider = provider;
     codec
 }
 

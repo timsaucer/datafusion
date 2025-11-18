@@ -87,6 +87,9 @@ pub struct FFI_LogicalExtensionCodec {
     try_encode_udwf:
         unsafe extern "C" fn(&Self, node: FFI_WindowUDF) -> RResult<RVec<u8>, RString>,
 
+    set_task_ctx_provider:
+        unsafe extern "C" fn(&Self, provider: FFI_TaskContextProvider) -> Self,
+
     /// Used to create a clone on the provider of the execution plan. This should
     /// only need to be called by the receiver of the plan.
     pub clone: unsafe extern "C" fn(plan: &Self) -> Self,
@@ -112,6 +115,7 @@ unsafe impl Sync for FFI_LogicalExtensionCodec {}
 struct LogicalExtensionCodecPrivateData {
     provider: Arc<dyn LogicalExtensionCodec>,
     runtime: Option<Handle>,
+    task_ctx_provider: FFI_TaskContextProvider,
 }
 
 impl FFI_LogicalExtensionCodec {
@@ -124,6 +128,15 @@ impl FFI_LogicalExtensionCodec {
         let private_data = self.private_data as *const LogicalExtensionCodecPrivateData;
         unsafe { &(*private_data).runtime }
     }
+
+    fn task_ctx(&self) -> Result<Arc<TaskContext>> {
+        self.task_ctx_provider().try_into()
+    }
+
+    fn task_ctx_provider(&self) -> &FFI_TaskContextProvider {
+        let private_data = self.private_data as *const LogicalExtensionCodecPrivateData;
+        unsafe { &(*private_data).task_ctx_provider }
+    }
 }
 
 unsafe extern "C" fn try_decode_table_provider_fn_wrapper(
@@ -132,8 +145,8 @@ unsafe extern "C" fn try_decode_table_provider_fn_wrapper(
     table_ref: RStr,
     schema: WrappedSchema,
 ) -> RResult<FFI_TableProvider, RString> {
-    let task_ctx_provider = FFI_TaskContextProvider::empty();
-    let ctx: Arc<TaskContext> = rresult_return!((&task_ctx_provider).try_into());
+    let task_ctx_provider = codec.task_ctx_provider().clone();
+    let ctx = rresult_return!(codec.task_ctx());
     let runtime = codec.runtime().clone();
     let codec = codec.inner();
     let table_ref = TableReference::from(table_ref.as_str());
@@ -157,8 +170,9 @@ unsafe extern "C" fn try_decode_table_provider_fn_wrapper(
 unsafe extern "C" fn try_encode_table_provider_fn_wrapper(
     codec: &FFI_LogicalExtensionCodec,
     table_ref: RStr,
-    node: FFI_TableProvider,
+    mut node: FFI_TableProvider,
 ) -> RResult<RVec<u8>, RString> {
+    node.task_ctx_provider = codec.task_ctx_provider().clone();
     let table_ref = TableReference::from(table_ref.as_str());
     let table_provider: Arc<dyn TableProvider> = (&node).into();
     let codec = codec.inner();
@@ -205,7 +219,7 @@ unsafe extern "C" fn try_decode_udaf_fn_wrapper(
     name: RStr,
     buf: RSlice<u8>,
 ) -> RResult<FFI_AggregateUDF, RString> {
-    let task_ctx_provider = FFI_TaskContextProvider::empty();
+    let task_ctx_provider = codec.task_ctx_provider().clone();
     let codec = codec.inner();
     let udaf = rresult_return!(codec.try_decode_udaf(name.into(), buf.as_ref()));
     let udaf = FFI_AggregateUDF::new(udaf, task_ctx_provider);
@@ -215,8 +229,9 @@ unsafe extern "C" fn try_decode_udaf_fn_wrapper(
 
 unsafe extern "C" fn try_encode_udaf_fn_wrapper(
     codec: &FFI_LogicalExtensionCodec,
-    node: FFI_AggregateUDF,
+    mut node: FFI_AggregateUDF,
 ) -> RResult<RVec<u8>, RString> {
+    node.task_ctx_provider = codec.task_ctx_provider().clone();
     let codec = codec.inner();
     let udaf: Arc<dyn AggregateUDFImpl> = rresult_return!((&node).try_into());
     let udaf = AggregateUDF::new_from_shared_impl(udaf);
@@ -232,7 +247,7 @@ unsafe extern "C" fn try_decode_udwf_fn_wrapper(
     name: RStr,
     buf: RSlice<u8>,
 ) -> RResult<FFI_WindowUDF, RString> {
-    let task_ctx_provider = FFI_TaskContextProvider::empty();
+    let task_ctx_provider = codec.task_ctx_provider().clone();
     let codec = codec.inner();
     let udwf = rresult_return!(codec.try_decode_udwf(name.into(), buf.as_ref()));
     let udwf = FFI_WindowUDF::new(udwf, task_ctx_provider);
@@ -242,8 +257,9 @@ unsafe extern "C" fn try_decode_udwf_fn_wrapper(
 
 unsafe extern "C" fn try_encode_udwf_fn_wrapper(
     codec: &FFI_LogicalExtensionCodec,
-    node: FFI_WindowUDF,
+    mut node: FFI_WindowUDF,
 ) -> RResult<RVec<u8>, RString> {
+    node.task_ctx_provider = codec.task_ctx_provider().clone();
     let codec = codec.inner();
     let udwf: Arc<dyn WindowUDFImpl> = rresult_return!((&node).try_into());
     let udwf = WindowUDF::new_from_shared_impl(udwf);
@@ -252,6 +268,16 @@ unsafe extern "C" fn try_encode_udwf_fn_wrapper(
     rresult_return!(codec.try_encode_udwf(&udwf, &mut bytes));
 
     RResult::ROk(bytes.into())
+}
+
+unsafe extern "C" fn set_task_ctx_provider_fn_wrapper(
+    codec: &FFI_LogicalExtensionCodec,
+    provider: FFI_TaskContextProvider,
+) -> FFI_LogicalExtensionCodec {
+    let codec = codec.clone();
+    let private_data = codec.private_data as *mut LogicalExtensionCodecPrivateData;
+    (*private_data).task_ctx_provider = provider;
+    codec
 }
 
 unsafe extern "C" fn release_fn_wrapper(provider: &mut FFI_LogicalExtensionCodec) {
@@ -281,8 +307,12 @@ impl FFI_LogicalExtensionCodec {
         provider: Arc<dyn LogicalExtensionCodec + Send>,
         runtime: Option<Handle>,
     ) -> Self {
-        let private_data =
-            Box::new(LogicalExtensionCodecPrivateData { provider, runtime });
+        let task_ctx_provider = FFI_TaskContextProvider::empty();
+        let private_data = Box::new(LogicalExtensionCodecPrivateData {
+            provider,
+            runtime,
+            task_ctx_provider,
+        });
 
         Self {
             try_decode_table_provider: try_decode_table_provider_fn_wrapper,
@@ -293,6 +323,7 @@ impl FFI_LogicalExtensionCodec {
             try_encode_udaf: try_encode_udaf_fn_wrapper,
             try_decode_udwf: try_decode_udwf_fn_wrapper,
             try_encode_udwf: try_encode_udwf_fn_wrapper,
+            set_task_ctx_provider: set_task_ctx_provider_fn_wrapper,
 
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
