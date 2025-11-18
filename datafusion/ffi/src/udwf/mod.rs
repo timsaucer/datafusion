@@ -400,15 +400,16 @@ impl From<&FFI_SortOptions> for SortOptions {
 mod tests {
     use std::sync::Arc;
 
-    use crate::execution::FFI_TaskContextProvider;
-    use crate::integration_tests::create_record_batch;
-    use crate::udwf::{FFI_WindowUDF, ForeignWindowUDF};
     use arrow::array::{create_array, ArrayRef};
     use datafusion::functions_window::lead_lag::{lag_udwf, WindowShift};
     use datafusion::logical_expr::expr::Sort;
     use datafusion::logical_expr::{col, ExprFunctionExt, WindowUDF, WindowUDFImpl};
     use datafusion::prelude::SessionContext;
     use datafusion_execution::TaskContextProvider;
+
+    use crate::execution::FFI_TaskContextProvider;
+    use crate::integration_tests::create_record_batch;
+    use crate::udwf::{FFI_WindowUDF, ForeignWindowUDF};
 
     fn create_test_foreign_udwf(
         original_udwf: impl WindowUDFImpl + 'static,

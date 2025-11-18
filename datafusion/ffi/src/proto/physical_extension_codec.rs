@@ -18,12 +18,6 @@
 use std::ffi::c_void;
 use std::sync::Arc;
 
-use crate::execution::FFI_TaskContextProvider;
-use crate::execution_plan::FFI_ExecutionPlan;
-use crate::udaf::FFI_AggregateUDF;
-use crate::udf::FFI_ScalarUDF;
-use crate::udwf::FFI_WindowUDF;
-use crate::{df_result, rresult_return};
 use abi_stable::std_types::{RResult, RSlice, RStr, RString, RVec};
 use abi_stable::StableAbi;
 use async_trait::async_trait;
@@ -37,6 +31,13 @@ use datafusion_proto::physical_plan::{
     DefaultPhysicalExtensionCodec, PhysicalExtensionCodec,
 };
 use tokio::runtime::Handle;
+
+use crate::execution::FFI_TaskContextProvider;
+use crate::execution_plan::FFI_ExecutionPlan;
+use crate::udaf::FFI_AggregateUDF;
+use crate::udf::FFI_ScalarUDF;
+use crate::udwf::FFI_WindowUDF;
+use crate::{df_result, rresult_return};
 
 /// A stable struct for sharing [`PhysicalExtensionCodec`] across FFI boundaries.
 #[repr(C)]
@@ -455,8 +456,8 @@ impl PhysicalExtensionCodec for ForeignPhysicalExtensionCodec {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use crate::execution_plan::tests::EmptyExec;
-    use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
+    use std::sync::Arc;
+
     use arrow_schema::{DataType, Field, Schema};
     use datafusion::prelude::SessionContext;
     use datafusion_common::exec_err;
@@ -468,7 +469,9 @@ pub(crate) mod tests {
     use datafusion_functions_window::rank::{Rank, RankType};
     use datafusion_physical_plan::ExecutionPlan;
     use datafusion_proto::physical_plan::PhysicalExtensionCodec;
-    use std::sync::Arc;
+
+    use crate::execution_plan::tests::EmptyExec;
+    use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
 
     #[derive(Debug)]
     pub(crate) struct TestExtensionCodec;

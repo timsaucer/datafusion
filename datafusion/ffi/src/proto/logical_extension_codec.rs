@@ -18,14 +18,6 @@
 use std::ffi::c_void;
 use std::sync::Arc;
 
-use crate::arrow_wrappers::WrappedSchema;
-use crate::execution::FFI_TaskContextProvider;
-use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
-use crate::table_provider::FFI_TableProvider;
-use crate::udaf::FFI_AggregateUDF;
-use crate::udf::FFI_ScalarUDF;
-use crate::udwf::FFI_WindowUDF;
-use crate::{df_result, rresult_return};
 use abi_stable::std_types::{RResult, RSlice, RStr, RString, RVec};
 use abi_stable::StableAbi;
 use arrow::datatypes::SchemaRef;
@@ -41,6 +33,15 @@ use datafusion_expr::{
 };
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
 use tokio::runtime::Handle;
+
+use crate::arrow_wrappers::WrappedSchema;
+use crate::execution::FFI_TaskContextProvider;
+use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
+use crate::table_provider::FFI_TableProvider;
+use crate::udaf::FFI_AggregateUDF;
+use crate::udf::FFI_ScalarUDF;
+use crate::udwf::FFI_WindowUDF;
+use crate::{df_result, rresult_return};
 
 /// A stable struct for sharing [`LogicalExtensionCodec`] across FFI boundaries.
 #[repr(C)]
@@ -513,8 +514,8 @@ impl LogicalExtensionCodec for ForeignLogicalExtensionCodec {
 
 #[cfg(test)]
 mod tests {
-    use crate::proto::logical_extension_codec::FFI_LogicalExtensionCodec;
-    use crate::proto::physical_extension_codec::tests::TestExtensionCodec;
+    use std::sync::Arc;
+
     use arrow::array::record_batch;
     use arrow_schema::{DataType, Field, Schema, SchemaRef};
     use datafusion::prelude::SessionContext;
@@ -529,7 +530,9 @@ mod tests {
     use datafusion_functions_window::rank::{Rank, RankType};
     use datafusion_proto::logical_plan::LogicalExtensionCodec;
     use datafusion_proto::physical_plan::PhysicalExtensionCodec;
-    use std::sync::Arc;
+
+    use crate::proto::logical_extension_codec::FFI_LogicalExtensionCodec;
+    use crate::proto::physical_extension_codec::tests::TestExtensionCodec;
 
     fn create_test_table() -> MemTable {
         let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, true)]));

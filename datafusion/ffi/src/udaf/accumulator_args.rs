@@ -183,8 +183,6 @@ impl<'a> From<&'a ForeignAccumulatorArgs> for AccumulatorArgs<'a> {
 mod tests {
     use std::sync::Arc;
 
-    use super::{FFI_AccumulatorArgs, ForeignAccumulatorArgs};
-    use crate::execution::FFI_TaskContextProvider;
     use arrow::datatypes::{DataType, Field, Schema};
     use datafusion::error::Result;
     use datafusion::logical_expr::function::AccumulatorArgs;
@@ -192,6 +190,9 @@ mod tests {
     use datafusion::physical_plan::expressions::col;
     use datafusion::prelude::SessionContext;
     use datafusion_execution::TaskContextProvider;
+
+    use super::{FFI_AccumulatorArgs, ForeignAccumulatorArgs};
+    use crate::execution::FFI_TaskContextProvider;
 
     #[test]
     fn test_round_trip_accumulator_args() -> Result<()> {

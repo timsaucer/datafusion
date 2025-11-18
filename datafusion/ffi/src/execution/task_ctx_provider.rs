@@ -18,13 +18,14 @@
 use std::ffi::c_void;
 use std::sync::{Arc, OnceLock, Weak};
 
-use crate::execution::task_ctx::FFI_TaskContext;
-use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
-use crate::{df_result, rresult};
 use abi_stable::std_types::{RResult, RString};
 use abi_stable::StableAbi;
 use datafusion_common::{exec_datafusion_err, DataFusionError};
 use datafusion_execution::{TaskContext, TaskContextProvider};
+
+use crate::execution::task_ctx::FFI_TaskContext;
+use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
+use crate::{df_result, rresult};
 
 /// Struct for accessing the [`TaskContext`]. This method contains a weak
 /// reference, so there are no guarantees that the [`TaskContext`] remains

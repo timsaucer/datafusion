@@ -80,10 +80,12 @@ pub extern "C" fn get_library_marker_id() -> u64 {
 /// their `library_marker_id` function to return a different value.
 #[cfg(test)]
 pub mod tests {
-    use crate::execution::FFI_TaskContextProvider;
+    use std::sync::Arc;
+
     use datafusion::prelude::SessionContext;
     use datafusion_execution::TaskContextProvider;
-    use std::sync::Arc;
+
+    use crate::execution::FFI_TaskContextProvider;
 
     pub(crate) extern "C" fn mock_foreign_marker_id() -> u64 {
         super::get_library_marker_id() + 1
