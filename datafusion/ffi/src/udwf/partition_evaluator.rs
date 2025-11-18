@@ -375,7 +375,7 @@ mod tests {
         let original_accum = TestPartitionEvaluator {};
         let boxed_accum: Box<dyn PartitionEvaluator> = Box::new(original_accum);
         let mut ffi_accum: FFI_PartitionEvaluator = boxed_accum.into();
-        ffi_accum.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_accum.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_accum: Box<dyn PartitionEvaluator> = ffi_accum.into();
         unsafe {
             let concrete = &*(foreign_accum.as_ref() as *const dyn PartitionEvaluator

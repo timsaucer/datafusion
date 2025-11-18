@@ -428,7 +428,7 @@ mod tests {
         let original_udf = Arc::new(ScalarUDF::from(original_udf));
 
         let mut local_udf: FFI_ScalarUDF = Arc::clone(&original_udf).into();
-        local_udf.library_marker_id = crate::mock_foreign_marker_id;
+        local_udf.library_marker_id = crate::tests::mock_foreign_marker_id;
 
         let foreign_udf: Arc<dyn ScalarUDFImpl> = (&local_udf).try_into()?;
 
@@ -450,7 +450,7 @@ mod tests {
         assert!(foreign_udf.as_any().downcast_ref::<AbsFunc>().is_some());
 
         // Verify different library markers generate foreign providers
-        ffi_udf.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_udf.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_udf: Arc<dyn ScalarUDFImpl> = (&ffi_udf).try_into()?;
         assert!(foreign_udf
             .as_any()

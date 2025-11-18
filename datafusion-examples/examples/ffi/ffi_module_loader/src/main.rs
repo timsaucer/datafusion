@@ -25,6 +25,7 @@ use datafusion::{
 use abi_stable::library::{development_utils::compute_library_path, RootModule};
 use datafusion::datasource::TableProvider;
 use datafusion::execution::TaskContextProvider;
+use datafusion_ffi::execution::FFI_TaskContextProvider;
 use ffi_module_interface::TableProviderModuleRef;
 
 #[tokio::main]
@@ -42,6 +43,7 @@ async fn main() -> Result<()> {
 
     let ctx = Arc::new(SessionContext::new());
     let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+    let task_ctx_provider = FFI_TaskContextProvider::new(&task_ctx_provider);
 
     // By calling the code below, the table provided will be created within
     // the module's code.
@@ -50,7 +52,7 @@ async fn main() -> Result<()> {
             .create_table()
             .ok_or(DataFusionError::NotImplemented(
                 "External table provider failed to implement create_table".to_string(),
-            ))?(task_ctx_provider.into());
+            ))?(task_ctx_provider);
 
     // In order to access the table provider within this executable, we need to
     // turn it into a `ForeignTableProvider`.

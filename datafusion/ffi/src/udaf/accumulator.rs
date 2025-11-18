@@ -341,7 +341,7 @@ mod tests {
 
         let boxed_accum: Box<dyn Accumulator> = Box::new(original_accum);
         let mut ffi_accum: FFI_Accumulator = boxed_accum.into();
-        ffi_accum.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_accum.library_marker_id = crate::tests::mock_foreign_marker_id;
         let mut foreign_accum: Box<dyn Accumulator> = ffi_accum.into();
 
         // Send in an array to average. There are 5 values and it should average to 30.0
@@ -403,7 +403,7 @@ mod tests {
         let original_accum = AvgAccumulator::default();
         let boxed_accum: Box<dyn Accumulator> = Box::new(original_accum);
         let mut ffi_accum: FFI_Accumulator = boxed_accum.into();
-        ffi_accum.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_accum.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_accum: Box<dyn Accumulator> = ffi_accum.into();
         unsafe {
             let concrete = &*(foreign_accum.as_ref() as *const dyn Accumulator

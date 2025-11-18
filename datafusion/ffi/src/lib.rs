@@ -45,7 +45,7 @@ pub mod util;
 pub mod volatility;
 
 #[cfg(feature = "integration-tests")]
-pub mod tests;
+pub mod integration_tests;
 
 /// Returns the major version of the FFI implementation. If the API evolves,
 /// we use the major version to identify compatibility over the unsafe
@@ -79,8 +79,24 @@ pub extern "C" fn get_library_marker_id() -> u64 {
 /// into thinking we have a foreign call. We do this by overwriting
 /// their `library_marker_id` function to return a different value.
 #[cfg(test)]
-pub(crate) extern "C" fn mock_foreign_marker_id() -> u64 {
-    get_library_marker_id() + 1
+pub mod tests {
+    use crate::execution::FFI_TaskContextProvider;
+    use datafusion::prelude::SessionContext;
+    use datafusion_execution::TaskContextProvider;
+    use std::sync::Arc;
+
+    pub(crate) extern "C" fn mock_foreign_marker_id() -> u64 {
+        super::get_library_marker_id() + 1
+    }
+
+    pub(crate) fn test_session_and_ctx() -> (Arc<SessionContext>, FFI_TaskContextProvider)
+    {
+        let ctx = Arc::new(SessionContext::new());
+        let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&task_ctx_provider);
+
+        (ctx, task_ctx_provider)
+    }
 }
 
 #[cfg(doctest)]

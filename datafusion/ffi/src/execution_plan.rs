@@ -305,8 +305,6 @@ pub(crate) mod tests {
     use arrow::datatypes::{DataType, Field, Schema};
     use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
     use datafusion::physical_plan::Partitioning;
-    use datafusion::prelude::SessionContext;
-    use datafusion_execution::TaskContextProvider;
 
     use super::*;
 
@@ -384,13 +382,14 @@ pub(crate) mod tests {
     fn test_round_trip_ffi_execution_plan() -> Result<()> {
         let schema =
             Arc::new(Schema::new(vec![Field::new("a", DataType::Float32, false)]));
-        let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
+        let (_ctx, task_ctx_provider) = crate::tests::test_session_and_ctx();
 
         let original_plan = Arc::new(EmptyExec::new(schema));
         let original_name = original_plan.name().to_string();
 
-        let mut local_plan = FFI_ExecutionPlan::new(original_plan, ctx, None);
-        local_plan.library_marker_id = crate::mock_foreign_marker_id;
+        let mut local_plan =
+            FFI_ExecutionPlan::new(original_plan, task_ctx_provider, None);
+        local_plan.library_marker_id = crate::tests::mock_foreign_marker_id;
 
         let foreign_plan: Arc<dyn ExecutionPlan> = (&local_plan).try_into()?;
 
@@ -413,18 +412,19 @@ pub(crate) mod tests {
     fn test_ffi_execution_plan_children() -> Result<()> {
         let schema =
             Arc::new(Schema::new(vec![Field::new("a", DataType::Float32, false)]));
-        let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
+        let (_ctx, task_ctx_provider) = crate::tests::test_session_and_ctx();
 
         // Version 1: Adding child to the foreign plan
         let child_plan = Arc::new(EmptyExec::new(Arc::clone(&schema)));
-        let mut child_local = FFI_ExecutionPlan::new(child_plan, Arc::clone(&ctx), None);
-        child_local.library_marker_id = crate::mock_foreign_marker_id;
+        let mut child_local =
+            FFI_ExecutionPlan::new(child_plan, task_ctx_provider.clone(), None);
+        child_local.library_marker_id = crate::tests::mock_foreign_marker_id;
         let child_foreign = <Arc<dyn ExecutionPlan>>::try_from(&child_local)?;
 
         let parent_plan = Arc::new(EmptyExec::new(Arc::clone(&schema)));
         let mut parent_local =
-            FFI_ExecutionPlan::new(parent_plan, Arc::clone(&ctx), None);
-        parent_local.library_marker_id = crate::mock_foreign_marker_id;
+            FFI_ExecutionPlan::new(parent_plan, task_ctx_provider.clone(), None);
+        parent_local.library_marker_id = crate::tests::mock_foreign_marker_id;
         let parent_foreign = <Arc<dyn ExecutionPlan>>::try_from(&parent_local)?;
 
         assert_eq!(parent_foreign.children().len(), 0);
@@ -435,15 +435,16 @@ pub(crate) mod tests {
 
         // Version 2: Adding child to the local plan
         let child_plan = Arc::new(EmptyExec::new(Arc::clone(&schema)));
-        let mut child_local = FFI_ExecutionPlan::new(child_plan, Arc::clone(&ctx), None);
-        child_local.library_marker_id = crate::mock_foreign_marker_id;
+        let mut child_local =
+            FFI_ExecutionPlan::new(child_plan, task_ctx_provider.clone(), None);
+        child_local.library_marker_id = crate::tests::mock_foreign_marker_id;
         let child_foreign = <Arc<dyn ExecutionPlan>>::try_from(&child_local)?;
 
         let parent_plan = Arc::new(EmptyExec::new(Arc::clone(&schema)));
         let parent_plan = parent_plan.with_new_children(vec![child_foreign])?;
         let mut parent_local =
-            FFI_ExecutionPlan::new(parent_plan, Arc::clone(&ctx), None);
-        parent_local.library_marker_id = crate::mock_foreign_marker_id;
+            FFI_ExecutionPlan::new(parent_plan, task_ctx_provider, None);
+        parent_local.library_marker_id = crate::tests::mock_foreign_marker_id;
         let parent_foreign = <Arc<dyn ExecutionPlan>>::try_from(&parent_local)?;
 
         assert_eq!(parent_foreign.children().len(), 1);
@@ -455,8 +456,7 @@ pub(crate) mod tests {
     fn test_ffi_execution_plan_local_bypass() {
         let schema =
             Arc::new(Schema::new(vec![Field::new("a", DataType::Float32, false)]));
-        let ctx = Arc::new(SessionContext::new());
-        let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let (_ctx, task_ctx_provider) = crate::tests::test_session_and_ctx();
 
         let plan = Arc::new(EmptyExec::new(schema));
 
@@ -467,7 +467,7 @@ pub(crate) mod tests {
         assert!(foreign_plan.as_any().downcast_ref::<EmptyExec>().is_some());
 
         // Verify different library markers generate foreign providers
-        ffi_plan.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_plan.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_plan: Arc<dyn ExecutionPlan> = (&ffi_plan).try_into().unwrap();
         assert!(foreign_plan
             .as_any()

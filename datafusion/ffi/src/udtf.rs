@@ -32,6 +32,7 @@ use prost::Message;
 use tokio::runtime::Handle;
 
 use crate::execution::FFI_TaskContextProvider;
+use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
 use crate::table_provider::FFI_TableProvider;
 use crate::{df_result, rresult_return};
 
@@ -50,6 +51,8 @@ pub struct FFI_TableFunction {
     /// Provider for TaskContext to be used during protobuf serialization
     /// and deserialization.
     pub task_ctx_provider: FFI_TaskContextProvider,
+
+    pub physical_codec: FFI_PhysicalExtensionCodec,
 
     /// Used to create a clone on the provider of the udtf. This should
     /// only need to be called by the receiver of the udtf.
@@ -108,6 +111,7 @@ unsafe extern "C" fn call_fn_wrapper(
         false,
         runtime,
         udtf.task_ctx_provider.clone(),
+        Some(udtf.physical_codec.clone()),
     ))
 }
 
@@ -124,6 +128,7 @@ unsafe extern "C" fn clone_fn_wrapper(udtf: &FFI_TableFunction) -> FFI_TableFunc
         Arc::clone(udtf_inner),
         runtime,
         udtf.task_ctx_provider.clone(),
+        Some(udtf.physical_codec.clone()),
     )
 }
 
@@ -138,13 +143,16 @@ impl FFI_TableFunction {
         udtf: Arc<dyn TableFunctionImpl>,
         runtime: Option<Handle>,
         task_ctx_provider: impl Into<FFI_TaskContextProvider>,
+        physical_codec: Option<FFI_PhysicalExtensionCodec>,
     ) -> Self {
+        let physical_codec = physical_codec.unwrap_or_default();
         let task_ctx_provider = task_ctx_provider.into();
         let private_data = Box::new(TableFunctionPrivateData { udtf, runtime });
 
         Self {
             call: call_fn_wrapper,
             task_ctx_provider,
+            physical_codec,
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
             private_data: Box::into_raw(private_data) as *mut c_void,
@@ -296,10 +304,15 @@ mod tests {
         let original_udtf = Arc::new(TestUDTF {}) as Arc<dyn TableFunctionImpl>;
         let ctx = Arc::new(SessionContext::default());
         let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&task_ctx_provider);
 
-        let mut local_udtf: FFI_TableFunction =
-            FFI_TableFunction::new(Arc::clone(&original_udtf), None, task_ctx_provider);
-        local_udtf.library_marker_id = crate::mock_foreign_marker_id;
+        let mut local_udtf: FFI_TableFunction = FFI_TableFunction::new(
+            Arc::clone(&original_udtf),
+            None,
+            task_ctx_provider,
+            None,
+        );
+        local_udtf.library_marker_id = crate::tests::mock_foreign_marker_id;
 
         let foreign_udf: Arc<dyn TableFunctionImpl> = local_udtf.into();
 
@@ -332,14 +345,20 @@ mod tests {
         let original_udtf = Arc::new(TestUDTF {}) as Arc<dyn TableFunctionImpl>;
 
         let ctx = Arc::new(SessionContext::default()) as Arc<dyn TaskContextProvider>;
-        let mut ffi_udtf = FFI_TableFunction::new(Arc::clone(&original_udtf), None, ctx);
+        let task_ctx_provider = FFI_TaskContextProvider::new(&ctx);
+        let mut ffi_udtf = FFI_TableFunction::new(
+            Arc::clone(&original_udtf),
+            None,
+            task_ctx_provider,
+            None,
+        );
 
         // Verify local libraries can be downcast to their original
         let foreign_udtf: Arc<dyn TableFunctionImpl> = ffi_udtf.clone().into();
         assert!(arc_ptr_eq(&original_udtf, &foreign_udtf));
 
         // Verify different library markers generate foreign providers
-        ffi_udtf.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_udtf.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_udtf: Arc<dyn TableFunctionImpl> = ffi_udtf.into();
         assert!(!arc_ptr_eq(&original_udtf, &foreign_udtf));
 

@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+mod utils;
+
 /// Add an additional module here for convenience to scope this to only
 /// when the feature integration-tests is built
 #[cfg(feature = "integration-tests")]
@@ -25,9 +27,7 @@ mod tests {
     use arrow::array::{create_array, ArrayRef};
     use datafusion::catalog::TableFunctionImpl;
     use datafusion::error::{DataFusionError, Result};
-    use datafusion::prelude::SessionContext;
-    use datafusion_execution::TaskContextProvider;
-    use datafusion_ffi::tests::utils::get_module;
+    use datafusion_ffi::integration_tests::utils::get_module;
 
     /// This test validates that we can load an external module and use a scalar
     /// udf defined in it via the foreign function interface. In this case we are
@@ -35,16 +35,14 @@ mod tests {
     #[tokio::test]
     async fn test_user_defined_table_function() -> Result<()> {
         let module = get_module()?;
-
-        let ctx = Arc::new(SessionContext::default());
-        let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let (ctx, task_ctx_provider) = crate::utils::test_session_and_ctx();
 
         let ffi_table_func = module
             .create_table_function()
             .ok_or(DataFusionError::NotImplemented(
             "External table function provider failed to implement create_table_function"
                 .to_string(),
-        ))?(task_ctx_provider.into());
+        ))?(task_ctx_provider);
         let foreign_table_func: Arc<dyn TableFunctionImpl> = ffi_table_func.into();
 
         ctx.register_udtf("my_range", foreign_table_func);
@@ -56,8 +54,8 @@ mod tests {
             .await?;
         let expected = create_array!(Int64, [0, 1, 2, 3, 4]) as ArrayRef;
 
-        assert!(result.len() == 1);
-        assert!(result[0].column(0) == &expected);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].column(0), &expected);
 
         Ok(())
     }

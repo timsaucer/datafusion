@@ -19,6 +19,7 @@ use std::ffi::c_void;
 use std::sync::{Arc, OnceLock, Weak};
 
 use crate::execution::task_ctx::FFI_TaskContext;
+use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
 use crate::{df_result, rresult};
 use abi_stable::std_types::{RResult, RString};
 use abi_stable::StableAbi;
@@ -35,6 +36,8 @@ use datafusion_execution::{TaskContext, TaskContextProvider};
 #[allow(non_camel_case_types)]
 pub struct FFI_TaskContextProvider {
     pub task_ctx: unsafe extern "C" fn(&Self) -> RResult<FFI_TaskContext, RString>,
+
+    physical_codec: FFI_PhysicalExtensionCodec,
 
     /// Used to create a clone on the task context accessor. This should
     /// only need to be called by the receiver of the plan.
@@ -67,11 +70,15 @@ impl FFI_TaskContextProvider {
 }
 
 unsafe extern "C" fn task_ctx_fn_wrapper(
-    ctx_accessor: &FFI_TaskContextProvider,
+    ctx_provider: &FFI_TaskContextProvider,
 ) -> RResult<FFI_TaskContext, RString> {
-    rresult!(ctx_accessor
+    rresult!(ctx_provider
         .inner()
-        .map(|ctx| FFI_TaskContext::new(ctx, ctx_accessor.clone()))
+        .map(|ctx| FFI_TaskContext::new(
+            ctx,
+            ctx_provider.clone(),
+            Some(ctx_provider.physical_codec.clone())
+        ))
         .ok_or_else(|| {
             exec_datafusion_err!(
                 "TaskContextProvider went out of scope over FFI boundary."
@@ -80,15 +87,16 @@ unsafe extern "C" fn task_ctx_fn_wrapper(
 }
 
 unsafe extern "C" fn clone_fn_wrapper(
-    accessor: &FFI_TaskContextProvider,
+    provider: &FFI_TaskContextProvider,
 ) -> FFI_TaskContextProvider {
-    let private_data = accessor.private_data as *const TaskContextProviderPrivateData;
+    let private_data = provider.private_data as *const TaskContextProviderPrivateData;
     let ctx = Weak::clone(&(*private_data).ctx);
 
     let private_data = Box::new(TaskContextProviderPrivateData { ctx });
 
     FFI_TaskContextProvider {
         task_ctx: task_ctx_fn_wrapper,
+        physical_codec: provider.physical_codec.clone(),
         release: release_fn_wrapper,
         clone: clone_fn_wrapper,
         private_data: Box::into_raw(private_data) as *mut c_void,
@@ -112,19 +120,16 @@ impl Clone for FFI_TaskContextProvider {
     }
 }
 
-impl From<Arc<dyn TaskContextProvider>> for FFI_TaskContextProvider {
-    fn from(ctx: Arc<dyn TaskContextProvider>) -> Self {
-        (&ctx).into()
-    }
-}
-
-impl From<&Arc<dyn TaskContextProvider>> for FFI_TaskContextProvider {
-    fn from(ctx: &Arc<dyn TaskContextProvider>) -> Self {
+impl FFI_TaskContextProvider {
+    pub fn new(ctx: &Arc<dyn TaskContextProvider>) -> Self {
         let ctx = Arc::downgrade(ctx);
         let private_data = Box::new(TaskContextProviderPrivateData { ctx });
 
+        let physical_codec = FFI_PhysicalExtensionCodec::default();
+
         FFI_TaskContextProvider {
             task_ctx: task_ctx_fn_wrapper,
+            physical_codec,
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
             private_data: Box::into_raw(private_data) as *mut c_void,
@@ -171,6 +176,6 @@ impl FFI_TaskContextProvider {
         });
 
         let provider = Arc::clone(provider) as Arc<dyn TaskContextProvider>;
-        provider.into()
+        FFI_TaskContextProvider::new(&provider)
     }
 }

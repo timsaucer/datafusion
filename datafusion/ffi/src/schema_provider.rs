@@ -28,6 +28,7 @@ use datafusion_common::error::{DataFusionError, Result};
 use tokio::runtime::Handle;
 
 use crate::execution::FFI_TaskContextProvider;
+use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
 use crate::table_provider::{FFI_TableProvider, ForeignTableProvider};
 use crate::{df_result, rresult_return};
 
@@ -65,6 +66,8 @@ pub struct FFI_SchemaProvider {
     /// Provider for TaskContext to be used during protobuf serialization
     /// and deserialization.
     pub task_ctx_provider: FFI_TaskContextProvider,
+
+    pub physical_codec: FFI_PhysicalExtensionCodec,
 
     /// Used to create a clone on the provider of the execution plan. This should
     /// only need to be called by the receiver of the plan.
@@ -119,12 +122,21 @@ unsafe extern "C" fn table_fn_wrapper(
     name: RString,
 ) -> FfiFuture<RResult<ROption<FFI_TableProvider>, RString>> {
     let runtime = provider.runtime();
+    let physical_codec = provider.physical_codec.clone();
     let task_ctx_provider = provider.task_ctx_provider.clone();
     let provider = Arc::clone(provider.inner());
 
     async move {
         let table = rresult_return!(provider.table(name.as_str()).await)
-            .map(|t| FFI_TableProvider::new(t, true, runtime, task_ctx_provider))
+            .map(|t| {
+                FFI_TableProvider::new(
+                    t,
+                    true,
+                    runtime,
+                    task_ctx_provider,
+                    Some(physical_codec),
+                )
+            })
             .into();
 
         RResult::ROk(table)
@@ -139,12 +151,21 @@ unsafe extern "C" fn register_table_fn_wrapper(
 ) -> RResult<ROption<FFI_TableProvider>, RString> {
     let runtime = provider.runtime();
     let task_ctx_provider = provider.task_ctx_provider.clone();
+    let physical_codec = provider.physical_codec.clone();
     let provider = provider.inner();
 
     let table = Arc::new(ForeignTableProvider(table));
 
     let returned_table = rresult_return!(provider.register_table(name.into(), table))
-        .map(|t| FFI_TableProvider::new(t, true, runtime, task_ctx_provider));
+        .map(|t| {
+            FFI_TableProvider::new(
+                t,
+                true,
+                runtime,
+                task_ctx_provider,
+                Some(physical_codec),
+            )
+        });
 
     RResult::ROk(returned_table.into())
 }
@@ -155,10 +176,19 @@ unsafe extern "C" fn deregister_table_fn_wrapper(
 ) -> RResult<ROption<FFI_TableProvider>, RString> {
     let runtime = provider.runtime();
     let task_ctx_provider = provider.task_ctx_provider.clone();
+    let physical_codec = provider.physical_codec.clone();
     let provider = provider.inner();
 
-    let returned_table = rresult_return!(provider.deregister_table(name.as_str()))
-        .map(|t| FFI_TableProvider::new(t, true, runtime, task_ctx_provider));
+    let returned_table =
+        rresult_return!(provider.deregister_table(name.as_str())).map(|t| {
+            FFI_TableProvider::new(
+                t,
+                true,
+                runtime,
+                task_ctx_provider,
+                Some(physical_codec),
+            )
+        });
 
     RResult::ROk(returned_table.into())
 }
@@ -194,6 +224,7 @@ unsafe extern "C" fn clone_fn_wrapper(
         deregister_table: deregister_table_fn_wrapper,
         table_exist: table_exist_fn_wrapper,
         task_ctx_provider: provider.task_ctx_provider.clone(),
+        physical_codec: provider.physical_codec.clone(),
         clone: clone_fn_wrapper,
         release: release_fn_wrapper,
         version: super::version,
@@ -214,7 +245,9 @@ impl FFI_SchemaProvider {
         provider: Arc<dyn SchemaProvider + Send>,
         runtime: Option<Handle>,
         task_ctx_provider: impl Into<FFI_TaskContextProvider>,
+        physical_codec: Option<FFI_PhysicalExtensionCodec>,
     ) -> Self {
+        let physical_codec = physical_codec.unwrap_or_default();
         let task_ctx_provider = task_ctx_provider.into();
         let owner_name = provider.owner_name().map(|s| s.into()).into();
         let private_data = Box::new(ProviderPrivateData { provider, runtime });
@@ -227,6 +260,7 @@ impl FFI_SchemaProvider {
             deregister_table: deregister_table_fn_wrapper,
             table_exist: table_exist_fn_wrapper,
             task_ctx_provider,
+            physical_codec,
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
             version: super::version,
@@ -310,6 +344,7 @@ impl SchemaProvider for ForeignSchemaProvider {
                     true,
                     None,
                     self.0.task_ctx_provider.clone(),
+                    Some(self.0.physical_codec.clone()),
                 ),
             };
 
@@ -342,8 +377,6 @@ mod tests {
     use arrow::datatypes::Schema;
     use datafusion::catalog::MemorySchemaProvider;
     use datafusion::datasource::empty::EmptyTable;
-    use datafusion::prelude::SessionContext;
-    use datafusion_execution::TaskContextProvider;
 
     use super::*;
 
@@ -360,9 +393,11 @@ mod tests {
             .unwrap()
             .is_none());
 
-        let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
-        let mut ffi_schema_provider = FFI_SchemaProvider::new(schema_provider, None, ctx);
-        ffi_schema_provider.library_marker_id = crate::mock_foreign_marker_id;
+        let (_ctx, task_ctx_provider) = crate::tests::test_session_and_ctx();
+
+        let mut ffi_schema_provider =
+            FFI_SchemaProvider::new(schema_provider, None, task_ctx_provider, None);
+        ffi_schema_provider.library_marker_id = crate::tests::mock_foreign_marker_id;
 
         let foreign_schema_provider: Arc<dyn SchemaProvider + Send> =
             (&ffi_schema_provider).into();
@@ -411,9 +446,10 @@ mod tests {
     #[test]
     fn test_ffi_schema_provider_local_bypass() {
         let schema_provider = Arc::new(MemorySchemaProvider::new());
-        let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
 
-        let mut ffi_schema = FFI_SchemaProvider::new(schema_provider, None, ctx);
+        let (_ctx, task_ctx_provider) = crate::tests::test_session_and_ctx();
+        let mut ffi_schema =
+            FFI_SchemaProvider::new(schema_provider, None, task_ctx_provider, None);
 
         // Verify local libraries can be downcast to their original
         let foreign_schema: Arc<dyn SchemaProvider + Send> = (&ffi_schema).into();
@@ -423,7 +459,7 @@ mod tests {
             .is_some());
 
         // Verify different library markers generate foreign providers
-        ffi_schema.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_schema.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_schema: Arc<dyn SchemaProvider + Send> = (&ffi_schema).into();
         assert!(foreign_schema
             .as_any()

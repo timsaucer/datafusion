@@ -42,6 +42,7 @@ use prost::{DecodeError, Message};
 
 use crate::arrow_wrappers::WrappedSchema;
 use crate::execution::FFI_TaskContextProvider;
+use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
 use crate::util::{
     rvec_wrapped_to_vec_datatype, rvec_wrapped_to_vec_fieldref,
     vec_datatype_to_rvec_wrapped, vec_fieldref_to_rvec_wrapped,
@@ -135,6 +136,8 @@ pub struct FFI_AggregateUDF {
     /// Provider for TaskContext to be used during protobuf serialization
     /// and deserialization.
     pub task_ctx_provider: FFI_TaskContextProvider,
+
+    pub physical_codec: FFI_PhysicalExtensionCodec,
 
     /// Used to create a clone on the provider of the udaf. This should
     /// only need to be called by the receiver of the udaf.
@@ -242,6 +245,7 @@ unsafe extern "C" fn with_beneficial_ordering_fn_wrapper(
     beneficial_ordering: bool,
 ) -> RResult<ROption<FFI_AggregateUDF>, RString> {
     let task_ctx_provider = udaf.task_ctx_provider.clone();
+    let physical_codec = udaf.physical_codec.clone();
     let udaf = udaf.inner().as_ref().clone();
 
     let result = rresult_return!(udaf.with_beneficial_ordering(beneficial_ordering));
@@ -249,7 +253,9 @@ unsafe extern "C" fn with_beneficial_ordering_fn_wrapper(
         .map(|func| func.with_beneficial_ordering(beneficial_ordering))
         .transpose())
     .flatten()
-    .map(|func| FFI_AggregateUDF::new(Arc::new(func), task_ctx_provider));
+    .map(|func| {
+        FFI_AggregateUDF::new(Arc::new(func), task_ctx_provider, Some(physical_codec))
+    });
 
     RResult::ROk(result.into())
 }
@@ -332,7 +338,11 @@ unsafe extern "C" fn release_fn_wrapper(udaf: &mut FFI_AggregateUDF) {
 }
 
 unsafe extern "C" fn clone_fn_wrapper(udaf: &FFI_AggregateUDF) -> FFI_AggregateUDF {
-    FFI_AggregateUDF::new(Arc::clone(udaf.inner()), udaf.task_ctx_provider.clone())
+    FFI_AggregateUDF::new(
+        Arc::clone(udaf.inner()),
+        udaf.task_ctx_provider.clone(),
+        Some(udaf.physical_codec.clone()),
+    )
 }
 
 impl Clone for FFI_AggregateUDF {
@@ -345,7 +355,9 @@ impl FFI_AggregateUDF {
     pub fn new(
         udaf: Arc<AggregateUDF>,
         task_ctx_provider: impl Into<FFI_TaskContextProvider>,
+        physical_codec: Option<FFI_PhysicalExtensionCodec>,
     ) -> Self {
+        let physical_codec = physical_codec.unwrap_or_default();
         let task_ctx_provider = task_ctx_provider.into();
         let name = udaf.name().into();
         let aliases = udaf.aliases().iter().map(|a| a.to_owned().into()).collect();
@@ -369,6 +381,7 @@ impl FFI_AggregateUDF {
             order_sensitivity: order_sensitivity_fn_wrapper,
             coerce_types: coerce_types_fn_wrapper,
             task_ctx_provider,
+            physical_codec,
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
             private_data: Box::into_raw(private_data) as *mut c_void,
@@ -467,8 +480,11 @@ impl AggregateUDFImpl for ForeignAggregateUDF {
     }
 
     fn accumulator(&self, acc_args: AccumulatorArgs) -> Result<Box<dyn Accumulator>> {
-        let args =
-            FFI_AccumulatorArgs::try_new(acc_args, self.udaf.task_ctx_provider.clone())?;
+        let args = FFI_AccumulatorArgs::try_new(
+            acc_args,
+            self.udaf.task_ctx_provider.clone(),
+            Some(self.udaf.physical_codec.clone()),
+        )?;
         unsafe {
             df_result!((self.udaf.accumulator)(&self.udaf, args))
                 .map(<Box<dyn Accumulator>>::from)
@@ -515,15 +531,17 @@ impl AggregateUDFImpl for ForeignAggregateUDF {
     }
 
     fn groups_accumulator_supported(&self, args: AccumulatorArgs) -> bool {
-        let args =
-            match FFI_AccumulatorArgs::try_new(args, self.udaf.task_ctx_provider.clone())
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    log::warn!("Attempting to convert accumulator arguments: {e}");
-                    return false;
-                }
-            };
+        let args = match FFI_AccumulatorArgs::try_new(
+            args,
+            self.udaf.task_ctx_provider.clone(),
+            Some(self.udaf.physical_codec.clone()),
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!("Attempting to convert accumulator arguments: {e}");
+                return false;
+            }
+        };
 
         unsafe { (self.udaf.groups_accumulator_supported)(&self.udaf, args) }
     }
@@ -532,8 +550,11 @@ impl AggregateUDFImpl for ForeignAggregateUDF {
         &self,
         args: AccumulatorArgs,
     ) -> Result<Box<dyn GroupsAccumulator>> {
-        let args =
-            FFI_AccumulatorArgs::try_new(args, self.udaf.task_ctx_provider.clone())?;
+        let args = FFI_AccumulatorArgs::try_new(
+            args,
+            self.udaf.task_ctx_provider.clone(),
+            Some(self.udaf.physical_codec.clone()),
+        )?;
 
         unsafe {
             df_result!((self.udaf.create_groups_accumulator)(&self.udaf, args))
@@ -549,8 +570,11 @@ impl AggregateUDFImpl for ForeignAggregateUDF {
         &self,
         args: AccumulatorArgs,
     ) -> Result<Box<dyn Accumulator>> {
-        let args =
-            FFI_AccumulatorArgs::try_new(args, self.udaf.task_ctx_provider.clone())?;
+        let args = FFI_AccumulatorArgs::try_new(
+            args,
+            self.udaf.task_ctx_provider.clone(),
+            Some(self.udaf.physical_codec.clone()),
+        )?;
         unsafe {
             df_result!((self.udaf.create_sliding_accumulator)(&self.udaf, args))
                 .map(<Box<dyn Accumulator>>::from)
@@ -676,12 +700,12 @@ mod tests {
 
     fn create_test_foreign_udaf(
         original_udaf: impl AggregateUDFImpl + 'static,
-        ctx: &Arc<dyn TaskContextProvider>,
+        ctx: FFI_TaskContextProvider,
     ) -> Result<AggregateUDF> {
         let original_udaf = Arc::new(AggregateUDF::from(original_udaf));
 
-        let mut local_udaf = FFI_AggregateUDF::new(Arc::clone(&original_udaf), ctx);
-        local_udaf.library_marker_id = crate::mock_foreign_marker_id;
+        let mut local_udaf = FFI_AggregateUDF::new(Arc::clone(&original_udaf), ctx, None);
+        local_udaf.library_marker_id = crate::tests::mock_foreign_marker_id;
 
         let foreign_udaf: Arc<dyn AggregateUDFImpl> = (&local_udaf).try_into()?;
         Ok(AggregateUDF::new_from_shared_impl(foreign_udaf))
@@ -693,10 +717,12 @@ mod tests {
         let original_name = original_udaf.name().to_owned();
         let original_udaf = Arc::new(AggregateUDF::from(original_udaf));
         let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&ctx);
 
         // Convert to FFI format
-        let mut local_udaf = FFI_AggregateUDF::new(Arc::clone(&original_udaf), ctx);
-        local_udaf.library_marker_id = crate::mock_foreign_marker_id;
+        let mut local_udaf =
+            FFI_AggregateUDF::new(Arc::clone(&original_udaf), task_ctx_provider, None);
+        local_udaf.library_marker_id = crate::tests::mock_foreign_marker_id;
 
         // Convert back to native format
         let foreign_udaf: Arc<dyn AggregateUDFImpl> = (&local_udaf).try_into()?;
@@ -709,8 +735,9 @@ mod tests {
     #[test]
     fn test_foreign_udaf_aliases() -> Result<()> {
         let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
-        let foreign_udaf =
-            create_test_foreign_udaf(Sum::new(), &ctx)?.with_aliases(["my_function"]);
+        let task_ctx_provider = FFI_TaskContextProvider::new(&ctx);
+        let foreign_udaf = create_test_foreign_udaf(Sum::new(), task_ctx_provider)?
+            .with_aliases(["my_function"]);
 
         let return_field =
             foreign_udaf
@@ -723,7 +750,8 @@ mod tests {
     #[test]
     fn test_foreign_udaf_accumulator() -> Result<()> {
         let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
-        let foreign_udaf = create_test_foreign_udaf(Sum::new(), &ctx)?;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&ctx);
+        let foreign_udaf = create_test_foreign_udaf(Sum::new(), task_ctx_provider)?;
 
         let schema = Schema::new(vec![Field::new("a", DataType::Float64, true)]);
         let acc_args = AccumulatorArgs {
@@ -751,9 +779,11 @@ mod tests {
         let original_udaf = SumWithCopiedMetadata::default();
         let original_udaf = Arc::new(AggregateUDF::from(original_udaf));
         let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&ctx);
 
         // Convert to FFI format
-        let local_udaf = FFI_AggregateUDF::new(Arc::clone(&original_udaf), ctx);
+        let local_udaf =
+            FFI_AggregateUDF::new(Arc::clone(&original_udaf), task_ctx_provider, None);
 
         // Convert back to native format
         let foreign_udaf: Arc<dyn AggregateUDFImpl> = (&local_udaf).try_into()?;
@@ -775,9 +805,10 @@ mod tests {
     #[test]
     fn test_beneficial_ordering() -> Result<()> {
         let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&ctx);
         let foreign_udaf = create_test_foreign_udaf(
             datafusion::functions_aggregate::first_last::FirstValue::new(),
-            &ctx,
+            task_ctx_provider,
         )?;
 
         let foreign_udaf = foreign_udaf.with_beneficial_ordering(true)?.unwrap();
@@ -804,7 +835,8 @@ mod tests {
     #[test]
     fn test_sliding_accumulator() -> Result<()> {
         let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
-        let foreign_udaf = create_test_foreign_udaf(Sum::new(), &ctx)?;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&ctx);
+        let foreign_udaf = create_test_foreign_udaf(Sum::new(), task_ctx_provider)?;
 
         let schema = Schema::new(vec![Field::new("a", DataType::Float64, true)]);
         // Note: sum distinct is only support Int64 until now
@@ -849,15 +881,16 @@ mod tests {
         let original_udaf = Sum::new();
         let original_udaf = Arc::new(AggregateUDF::from(original_udaf));
         let ctx = Arc::new(SessionContext::default()) as Arc<dyn TaskContextProvider>;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&ctx);
 
-        let mut ffi_udaf = FFI_AggregateUDF::new(original_udaf, ctx);
+        let mut ffi_udaf = FFI_AggregateUDF::new(original_udaf, task_ctx_provider, None);
 
         // Verify local libraries can be downcast to their original
         let foreign_udaf: Arc<dyn AggregateUDFImpl> = (&ffi_udaf).try_into()?;
         assert!(foreign_udaf.as_any().downcast_ref::<Sum>().is_some());
 
         // Verify different library markers generate foreign providers
-        ffi_udaf.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_udaf.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_udaf: Arc<dyn AggregateUDFImpl> = (&ffi_udaf).try_into()?;
         assert!(foreign_udaf
             .as_any()

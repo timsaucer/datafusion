@@ -39,6 +39,7 @@ use prost::Message;
 
 use crate::arrow_wrappers::WrappedSchema;
 use crate::execution::FFI_TaskContextProvider;
+use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
 
 /// A stable struct for sharing [`AccumulatorArgs`] across FFI boundaries.
 /// For an explanation of each field, see the corresponding field
@@ -56,13 +57,17 @@ pub struct FFI_AccumulatorArgs {
     /// Provider for TaskContext to be used during protobuf serialization
     /// and deserialization.
     pub task_ctx_provider: FFI_TaskContextProvider,
+
+    pub physical_codec: FFI_PhysicalExtensionCodec,
 }
 
 impl FFI_AccumulatorArgs {
     pub fn try_new(
         args: AccumulatorArgs,
         task_ctx_provider: impl Into<FFI_TaskContextProvider>,
+        physical_codec: Option<FFI_PhysicalExtensionCodec>,
     ) -> Result<Self, DataFusionError> {
+        let physical_codec = physical_codec.unwrap_or_default();
         let task_ctx_provider = task_ctx_provider.into();
         let return_field =
             WrappedSchema(FFI_ArrowSchema::try_from(args.return_field.as_ref())?);
@@ -92,6 +97,7 @@ impl FFI_AccumulatorArgs {
             name: args.name.into(),
             physical_expr_def,
             task_ctx_provider,
+            physical_codec,
         })
     }
 }
@@ -177,6 +183,8 @@ impl<'a> From<&'a ForeignAccumulatorArgs> for AccumulatorArgs<'a> {
 mod tests {
     use std::sync::Arc;
 
+    use super::{FFI_AccumulatorArgs, ForeignAccumulatorArgs};
+    use crate::execution::FFI_TaskContextProvider;
     use arrow::datatypes::{DataType, Field, Schema};
     use datafusion::error::Result;
     use datafusion::logical_expr::function::AccumulatorArgs;
@@ -184,8 +192,6 @@ mod tests {
     use datafusion::physical_plan::expressions::col;
     use datafusion::prelude::SessionContext;
     use datafusion_execution::TaskContextProvider;
-
-    use super::{FFI_AccumulatorArgs, ForeignAccumulatorArgs};
 
     #[test]
     fn test_round_trip_accumulator_args() -> Result<()> {
@@ -203,9 +209,10 @@ mod tests {
         };
         let orig_str = format!("{orig_args:?}");
         let ctx = Arc::new(SessionContext::new());
-        let task_ctx_accessor = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&task_ctx_provider);
 
-        let ffi_args = FFI_AccumulatorArgs::try_new(orig_args, task_ctx_accessor)?;
+        let ffi_args = FFI_AccumulatorArgs::try_new(orig_args, task_ctx_provider, None)?;
         let foreign_args: ForeignAccumulatorArgs = ffi_args.try_into()?;
         let round_trip_args: AccumulatorArgs = (&foreign_args).into();
 

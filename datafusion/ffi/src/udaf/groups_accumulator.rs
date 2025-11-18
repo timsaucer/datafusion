@@ -456,7 +456,7 @@ mod tests {
         let boxed_accum: Box<dyn GroupsAccumulator> =
             Box::new(BooleanGroupsAccumulator::new(|a, b| a && b, true));
         let mut ffi_accum: FFI_GroupsAccumulator = boxed_accum.into();
-        ffi_accum.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_accum.library_marker_id = crate::tests::mock_foreign_marker_id;
         let mut foreign_accum: Box<dyn GroupsAccumulator> = ffi_accum.into();
 
         // Send in an array to evaluate. We want a mean of 30 and standard deviation of 4.
@@ -545,7 +545,7 @@ mod tests {
         let original_accum = StddevGroupsAccumulator::new(StatsType::Population);
         let boxed_accum: Box<dyn GroupsAccumulator> = Box::new(original_accum);
         let mut ffi_accum: FFI_GroupsAccumulator = boxed_accum.into();
-        ffi_accum.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_accum.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_accum: Box<dyn GroupsAccumulator> = ffi_accum.into();
         unsafe {
             let concrete = &*(foreign_accum.as_ref() as *const dyn GroupsAccumulator

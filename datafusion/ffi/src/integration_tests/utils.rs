@@ -20,7 +20,7 @@ use std::path::Path;
 use abi_stable::library::RootModule;
 use datafusion_common::error::{DataFusionError, Result};
 
-use crate::tests::ForeignLibraryModuleRef;
+use crate::integration_tests::ForeignLibraryModuleRef;
 
 /// Compute the path to the library. It would be preferable to simply use
 /// abi_stable::library::development_utils::compute_library_path however

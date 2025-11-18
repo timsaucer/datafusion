@@ -310,8 +310,6 @@ impl From<FFI_EmissionType> for EmissionType {
 mod tests {
     use datafusion::physical_expr::PhysicalSortExpr;
     use datafusion::physical_plan::Partitioning;
-    use datafusion::prelude::SessionContext;
-    use datafusion_execution::TaskContextProvider;
 
     use super::*;
 
@@ -335,12 +333,11 @@ mod tests {
     #[test]
     fn test_round_trip_ffi_plan_properties() -> Result<()> {
         let original_props = create_test_props()?;
-        let ctx = Arc::new(SessionContext::default());
-        let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let (_ctx, task_ctx_provider) = crate::tests::test_session_and_ctx();
 
         let mut local_props_ptr =
             FFI_PlanProperties::new(&original_props, task_ctx_provider);
-        local_props_ptr.library_marker_id = crate::mock_foreign_marker_id;
+        local_props_ptr.library_marker_id = crate::tests::mock_foreign_marker_id;
 
         let foreign_props: PlanProperties = local_props_ptr.try_into()?;
 
@@ -352,10 +349,10 @@ mod tests {
     #[test]
     fn test_ffi_plan_properties_local_bypass() -> Result<()> {
         let props = create_test_props()?;
-        let ctx = Arc::new(SessionContext::default());
-        let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
 
-        let ffi_plan = FFI_PlanProperties::new(&props, Arc::clone(&task_ctx_provider));
+        let (_ctx, task_ctx_provider) = crate::tests::test_session_and_ctx();
+
+        let ffi_plan = FFI_PlanProperties::new(&props, task_ctx_provider.clone());
 
         // Verify local libraries
         let foreign_plan: PlanProperties = ffi_plan.try_into()?;
@@ -363,7 +360,7 @@ mod tests {
 
         // Verify different library markers still can produce identical properties
         let mut ffi_plan = FFI_PlanProperties::new(&props, task_ctx_provider);
-        ffi_plan.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_plan.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_plan: PlanProperties = ffi_plan.try_into()?;
         assert_eq!(format!("{foreign_plan:?}"), format!("{:?}", foreign_plan));
 

@@ -33,7 +33,9 @@ use datafusion_expr::{
     AggregateUDF, AggregateUDFImpl, ScalarUDF, ScalarUDFImpl, WindowUDF, WindowUDFImpl,
 };
 use datafusion_physical_plan::ExecutionPlan;
-use datafusion_proto::physical_plan::PhysicalExtensionCodec;
+use datafusion_proto::physical_plan::{
+    DefaultPhysicalExtensionCodec, PhysicalExtensionCodec,
+};
 use tokio::runtime::Handle;
 
 /// A stable struct for sharing [`PhysicalExtensionCodec`] across FFI boundaries.
@@ -209,9 +211,9 @@ unsafe extern "C" fn try_decode_udaf_fn_wrapper(
     buf: RSlice<u8>,
 ) -> RResult<FFI_AggregateUDF, RString> {
     let task_ctx_provider = codec.task_ctx_provider().clone();
-    let codec = codec.inner();
-    let udaf = rresult_return!(codec.try_decode_udaf(name.into(), buf.as_ref()));
-    let udaf = FFI_AggregateUDF::new(udaf, task_ctx_provider);
+    let codec_inner = codec.inner();
+    let udaf = rresult_return!(codec_inner.try_decode_udaf(name.into(), buf.as_ref()));
+    let udaf = FFI_AggregateUDF::new(udaf, task_ctx_provider, Some(codec.clone()));
 
     RResult::ROk(udaf)
 }
@@ -323,6 +325,13 @@ impl FFI_PhysicalExtensionCodec {
     }
 }
 
+impl Default for FFI_PhysicalExtensionCodec {
+    fn default() -> Self {
+        let codec = Arc::new(DefaultPhysicalExtensionCodec {});
+        FFI_PhysicalExtensionCodec::new(codec, None)
+    }
+}
+
 /// This wrapper struct exists on the receiver side of the FFI interface, so it has
 /// no guarantees about being able to access the data in `private_data`. Any functions
 /// defined on this struct must only use the stable functions provided in
@@ -412,7 +421,11 @@ impl PhysicalExtensionCodec for ForeignPhysicalExtensionCodec {
 
     fn try_encode_udaf(&self, node: &AggregateUDF, buf: &mut Vec<u8>) -> Result<()> {
         let node = Arc::new(node.clone());
-        let node = FFI_AggregateUDF::new(node, FFI_TaskContextProvider::empty());
+        let node = FFI_AggregateUDF::new(
+            node,
+            FFI_TaskContextProvider::empty(),
+            Some(self.0.clone()),
+        );
         let bytes = df_result!(unsafe { (self.0.try_encode_udaf)(&self.0, node) })?;
 
         buf.extend(bytes);
@@ -626,7 +639,7 @@ pub(crate) mod tests {
         let ctx = Arc::new(SessionContext::new());
 
         let mut ffi_codec = FFI_PhysicalExtensionCodec::new(codec, None);
-        ffi_codec.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_codec.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_codec: Arc<dyn PhysicalExtensionCodec> = (&ffi_codec).into();
 
         let exec = create_test_exec();
@@ -647,7 +660,7 @@ pub(crate) mod tests {
         let codec = Arc::new(TestExtensionCodec {});
 
         let mut ffi_codec = FFI_PhysicalExtensionCodec::new(codec, None);
-        ffi_codec.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_codec.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_codec: Arc<dyn PhysicalExtensionCodec> = (&ffi_codec).into();
 
         let udf = Arc::new(ScalarUDF::from(AbsFunc::new()));
@@ -666,7 +679,7 @@ pub(crate) mod tests {
         let codec = Arc::new(TestExtensionCodec {});
 
         let mut ffi_codec = FFI_PhysicalExtensionCodec::new(codec, None);
-        ffi_codec.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_codec.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_codec: Arc<dyn PhysicalExtensionCodec> = (&ffi_codec).into();
 
         let udf = Arc::new(AggregateUDF::from(Sum::new()));
@@ -685,7 +698,7 @@ pub(crate) mod tests {
         let codec = Arc::new(TestExtensionCodec {});
 
         let mut ffi_codec = FFI_PhysicalExtensionCodec::new(codec, None);
-        ffi_codec.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_codec.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_codec: Arc<dyn PhysicalExtensionCodec> = (&ffi_codec).into();
 
         let udf = Arc::new(WindowUDF::from(Rank::new(
@@ -715,7 +728,7 @@ pub(crate) mod tests {
         assert!(arc_ptr_eq(&foreign_codec, &codec));
 
         // Verify different library markers generate foreign providers
-        ffi_codec.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_codec.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_codec: Arc<dyn PhysicalExtensionCodec> = (&ffi_codec).into();
         assert!(!arc_ptr_eq(&foreign_codec, &codec));
     }

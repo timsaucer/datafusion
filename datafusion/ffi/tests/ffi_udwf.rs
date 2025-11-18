@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+mod utils;
+
 /// Add an additional module here for convenience to scope this to only
 /// when the feature integration-tests is built
 #[cfg(feature = "integration-tests")]
@@ -25,16 +27,13 @@ mod tests {
     use datafusion::error::{DataFusionError, Result};
     use datafusion::logical_expr::expr::Sort;
     use datafusion::logical_expr::{col, ExprFunctionExt, WindowUDF, WindowUDFImpl};
-    use datafusion::prelude::SessionContext;
-    use datafusion_execution::TaskContextProvider;
-    use datafusion_ffi::tests::create_record_batch;
-    use datafusion_ffi::tests::utils::get_module;
+    use datafusion_ffi::integration_tests::create_record_batch;
+    use datafusion_ffi::integration_tests::utils::get_module;
 
     #[tokio::test]
     async fn test_rank_udwf() -> Result<()> {
         let module = get_module()?;
-        let ctx = Arc::new(SessionContext::default());
-        let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let (ctx, task_ctx_provider) = crate::utils::test_session_and_ctx();
 
         let ffi_rank_func =
             module
@@ -42,7 +41,7 @@ mod tests {
                 .ok_or(DataFusionError::NotImplemented(
                     "External table provider failed to implement create_scalar_udf"
                         .to_string(),
-                ))?(task_ctx_provider.into());
+                ))?(task_ctx_provider);
         let foreign_rank_func: Arc<dyn WindowUDFImpl> = (&ffi_rank_func).try_into()?;
 
         let udwf = WindowUDF::new_from_shared_impl(foreign_rank_func);

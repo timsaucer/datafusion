@@ -41,6 +41,7 @@ use super::execution_plan::FFI_ExecutionPlan;
 use super::insert_op::FFI_InsertOp;
 use crate::arrow_wrappers::WrappedSchema;
 use crate::execution::FFI_TaskContextProvider;
+use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
 use crate::session::{FFI_Session, ForeignSession};
 use crate::table_source::{FFI_TableProviderFilterPushDown, FFI_TableType};
 use crate::{df_result, rresult_return};
@@ -135,6 +136,8 @@ pub struct FFI_TableProvider {
     /// Provider for TaskContext to be used during protobuf serialization
     /// and deserialization.
     pub task_ctx_provider: FFI_TaskContextProvider,
+
+    pub physical_codec: FFI_PhysicalExtensionCodec,
 
     /// Used to create a clone on the provider of the execution plan. This should
     /// only need to be called by the receiver of the plan.
@@ -330,6 +333,7 @@ unsafe extern "C" fn clone_fn_wrapper(provider: &FFI_TableProvider) -> FFI_Table
         supports_filters_pushdown: provider.supports_filters_pushdown,
         insert_into: provider.insert_into,
         task_ctx_provider: provider.task_ctx_provider.clone(),
+        physical_codec: provider.physical_codec.clone(),
         clone: clone_fn_wrapper,
         release: release_fn_wrapper,
         version: super::version,
@@ -351,7 +355,9 @@ impl FFI_TableProvider {
         can_support_pushdown_filters: bool,
         runtime: Option<Handle>,
         task_ctx_provider: impl Into<FFI_TaskContextProvider>,
+        physical_codec: Option<FFI_PhysicalExtensionCodec>,
     ) -> Self {
+        let physical_codec = physical_codec.unwrap_or_default();
         let task_ctx_provider = task_ctx_provider.into();
         let private_data = Box::new(ProviderPrivateData { provider, runtime });
 
@@ -365,6 +371,7 @@ impl FFI_TableProvider {
             },
             insert_into: insert_into_fn_wrapper,
             task_ctx_provider,
+            physical_codec,
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
             version: super::version,
@@ -422,7 +429,12 @@ impl TableProvider for ForeignTableProvider {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let session = FFI_Session::new(session, self.0.task_ctx_provider.clone(), None);
+        let session = FFI_Session::new(
+            session,
+            self.0.task_ctx_provider.clone(),
+            None,
+            Some(self.0.physical_codec.clone()),
+        );
 
         let projections: Option<RVec<usize>> =
             projection.map(|p| p.iter().map(|v| v.to_owned()).collect());
@@ -485,7 +497,12 @@ impl TableProvider for ForeignTableProvider {
         input: Arc<dyn ExecutionPlan>,
         insert_op: InsertOp,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let session = FFI_Session::new(session, self.0.task_ctx_provider.clone(), None);
+        let session = FFI_Session::new(
+            session,
+            self.0.task_ctx_provider.clone(),
+            None,
+            Some(self.0.physical_codec.clone()),
+        );
 
         let rc = Handle::try_current().ok();
         let input = FFI_ExecutionPlan::new(input, self.0.task_ctx_provider.clone(), rc);
@@ -541,10 +558,11 @@ mod tests {
         let provider = create_test_table_provider()?;
         let ctx = Arc::new(SessionContext::new());
         let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&task_ctx_provider);
 
         let mut ffi_provider =
-            FFI_TableProvider::new(provider, true, None, task_ctx_provider);
-        ffi_provider.library_marker_id = crate::mock_foreign_marker_id;
+            FFI_TableProvider::new(provider, true, None, task_ctx_provider, None);
+        ffi_provider.library_marker_id = crate::tests::mock_foreign_marker_id;
 
         let foreign_table_provider: Arc<dyn TableProvider> = (&ffi_provider).into();
 
@@ -565,10 +583,11 @@ mod tests {
         let provider = create_test_table_provider()?;
         let ctx = Arc::new(SessionContext::new());
         let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&task_ctx_provider);
 
         let mut ffi_provider =
-            FFI_TableProvider::new(provider, true, None, task_ctx_provider);
-        ffi_provider.library_marker_id = crate::mock_foreign_marker_id;
+            FFI_TableProvider::new(provider, true, None, task_ctx_provider, None);
+        ffi_provider.library_marker_id = crate::tests::mock_foreign_marker_id;
 
         let foreign_table_provider: Arc<dyn TableProvider> = (&ffi_provider).into();
 
@@ -612,11 +631,12 @@ mod tests {
 
         let ctx = Arc::new(SessionContext::new());
         let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&task_ctx_provider);
 
         let provider = Arc::new(MemTable::try_new(schema, vec![vec![batch1]])?);
 
         let ffi_provider =
-            FFI_TableProvider::new(provider, true, None, task_ctx_provider);
+            FFI_TableProvider::new(provider, true, None, task_ctx_provider, None);
 
         let foreign_table_provider: Arc<dyn TableProvider> = (&ffi_provider).into();
 
@@ -644,7 +664,9 @@ mod tests {
         let table_provider = create_test_table_provider()?;
 
         let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
-        let mut ffi_table = FFI_TableProvider::new(table_provider, false, None, ctx);
+        let task_ctx_provider = FFI_TaskContextProvider::new(&ctx);
+        let mut ffi_table =
+            FFI_TableProvider::new(table_provider, false, None, task_ctx_provider, None);
 
         // Verify local libraries can be downcast to their original
         let foreign_table: Arc<dyn TableProvider> = (&ffi_table).into();
@@ -654,7 +676,7 @@ mod tests {
             .is_some());
 
         // Verify different library markers generate foreign providers
-        ffi_table.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_table.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_table: Arc<dyn TableProvider> = (&ffi_table).into();
         assert!(foreign_table
             .as_any()

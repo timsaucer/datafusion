@@ -49,7 +49,7 @@ pub(crate) extern "C" fn create_ffi_table_func(
 ) -> FFI_TableFunction {
     let udtf: Arc<dyn TableFunctionImpl> = Arc::new(RangeFunc {});
 
-    FFI_TableFunction::new(udtf, None, task_ctx_provider)
+    FFI_TableFunction::new(udtf, None, task_ctx_provider, None)
 }
 
 pub(crate) extern "C" fn create_ffi_sum_func(
@@ -57,7 +57,7 @@ pub(crate) extern "C" fn create_ffi_sum_func(
 ) -> FFI_AggregateUDF {
     let udaf: Arc<AggregateUDF> = Arc::new(Sum::new().into());
 
-    FFI_AggregateUDF::new(udaf, task_ctx_provider)
+    FFI_AggregateUDF::new(udaf, task_ctx_provider, None)
 }
 
 pub(crate) extern "C" fn create_ffi_stddev_func(
@@ -65,7 +65,7 @@ pub(crate) extern "C" fn create_ffi_stddev_func(
 ) -> FFI_AggregateUDF {
     let udaf: Arc<AggregateUDF> = Arc::new(Stddev::new().into());
 
-    FFI_AggregateUDF::new(udaf, task_ctx_provider)
+    FFI_AggregateUDF::new(udaf, task_ctx_provider, None)
 }
 
 pub(crate) extern "C" fn create_ffi_rank_func(

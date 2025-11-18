@@ -183,7 +183,7 @@ pub(crate) extern "C" fn create_catalog_provider(
     task_ctx_provider: FFI_TaskContextProvider,
 ) -> FFI_CatalogProvider {
     let catalog_provider = Arc::new(FixedCatalogProvider::default());
-    FFI_CatalogProvider::new(catalog_provider, None, task_ctx_provider)
+    FFI_CatalogProvider::new(catalog_provider, None, task_ctx_provider, None)
 }
 
 /// This catalog provider list is intended only for unit tests. It prepopulates with one
@@ -237,5 +237,5 @@ pub(crate) extern "C" fn create_catalog_provider_list(
     task_ctx_provider: FFI_TaskContextProvider,
 ) -> FFI_CatalogProviderList {
     let catalog_provider_list = Arc::new(FixedCatalogProviderList::default());
-    FFI_CatalogProviderList::new(catalog_provider_list, None, task_ctx_provider)
+    FFI_CatalogProviderList::new(catalog_provider_list, None, task_ctx_provider, None)
 }

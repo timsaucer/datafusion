@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+mod utils;
+
 /// Add an additional module here for convenience to scope this to only
 /// when the feature integration-tests is built
 #[cfg(feature = "integration-tests")]
@@ -22,16 +24,13 @@ mod tests {
     use std::sync::Arc;
 
     use datafusion::catalog::{CatalogProvider, CatalogProviderList};
-    use datafusion::prelude::SessionContext;
     use datafusion_common::DataFusionError;
-    use datafusion_execution::TaskContextProvider;
-    use datafusion_ffi::tests::utils::get_module;
+    use datafusion_ffi::integration_tests::utils::get_module;
 
     #[tokio::test]
     async fn test_catalog() -> datafusion_common::Result<()> {
         let module = get_module()?;
-        let ctx = Arc::new(SessionContext::default());
-        let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let (ctx, task_ctx_provider) = crate::utils::test_session_and_ctx();
 
         let ffi_catalog =
             module
@@ -39,7 +38,7 @@ mod tests {
                 .ok_or(DataFusionError::NotImplemented(
                     "External catalog provider failed to implement create_catalog"
                         .to_string(),
-                ))?(task_ctx_provider.into());
+                ))?(task_ctx_provider);
         let foreign_catalog: Arc<dyn CatalogProvider + Send> = (&ffi_catalog).into();
 
         let _ = ctx.register_catalog("fruit", foreign_catalog);
@@ -59,8 +58,7 @@ mod tests {
     async fn test_catalog_list() -> datafusion_common::Result<()> {
         let module = get_module()?;
 
-        let ctx = Arc::new(SessionContext::default());
-        let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let (ctx, task_ctx_provider) = crate::utils::test_session_and_ctx();
 
         let ffi_catalog_list =
             module
@@ -68,7 +66,7 @@ mod tests {
                 .ok_or(DataFusionError::NotImplemented(
                     "External catalog provider failed to implement create_catalog"
                         .to_string(),
-                ))?(task_ctx_provider.into());
+                ))?(task_ctx_provider);
         let foreign_catalog_list: Arc<dyn CatalogProviderList + Send> =
             (&ffi_catalog_list).into();
 

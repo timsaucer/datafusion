@@ -400,6 +400,9 @@ impl From<&FFI_SortOptions> for SortOptions {
 mod tests {
     use std::sync::Arc;
 
+    use crate::execution::FFI_TaskContextProvider;
+    use crate::integration_tests::create_record_batch;
+    use crate::udwf::{FFI_WindowUDF, ForeignWindowUDF};
     use arrow::array::{create_array, ArrayRef};
     use datafusion::functions_window::lead_lag::{lag_udwf, WindowShift};
     use datafusion::logical_expr::expr::Sort;
@@ -407,17 +410,14 @@ mod tests {
     use datafusion::prelude::SessionContext;
     use datafusion_execution::TaskContextProvider;
 
-    use crate::tests::create_record_batch;
-    use crate::udwf::{FFI_WindowUDF, ForeignWindowUDF};
-
     fn create_test_foreign_udwf(
         original_udwf: impl WindowUDFImpl + 'static,
-        ctx: &Arc<dyn TaskContextProvider>,
+        ctx: FFI_TaskContextProvider,
     ) -> datafusion::common::Result<WindowUDF> {
         let original_udwf = Arc::new(WindowUDF::from(original_udwf));
 
         let mut local_udwf = FFI_WindowUDF::new(Arc::clone(&original_udwf), ctx);
-        local_udwf.library_marker_id = crate::mock_foreign_marker_id;
+        local_udwf.library_marker_id = crate::tests::mock_foreign_marker_id;
 
         let foreign_udwf: Arc<dyn WindowUDFImpl> = (&local_udwf).try_into()?;
         Ok(WindowUDF::new_from_shared_impl(foreign_udwf))
@@ -428,10 +428,12 @@ mod tests {
         let original_udwf = lag_udwf();
         let original_name = original_udwf.name().to_owned();
         let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&ctx);
 
         // Convert to FFI format
-        let mut local_udwf = FFI_WindowUDF::new(Arc::clone(&original_udwf), ctx);
-        local_udwf.library_marker_id = crate::mock_foreign_marker_id;
+        let mut local_udwf =
+            FFI_WindowUDF::new(Arc::clone(&original_udwf), task_ctx_provider);
+        local_udwf.library_marker_id = crate::tests::mock_foreign_marker_id;
 
         // Convert back to native format
         let foreign_udwf: Arc<dyn WindowUDFImpl> = (&local_udwf).try_into()?;
@@ -444,7 +446,8 @@ mod tests {
     #[tokio::test]
     async fn test_lag_udwf() -> datafusion::common::Result<()> {
         let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
-        let udwf = create_test_foreign_udwf(WindowShift::lag(), &ctx)?;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&ctx);
+        let udwf = create_test_foreign_udwf(WindowShift::lag(), task_ctx_provider)?;
 
         let ctx = SessionContext::default();
         let df = ctx.read_batch(create_record_batch(-5, 5))?;
@@ -475,8 +478,9 @@ mod tests {
     fn test_ffi_udwf_local_bypass() -> datafusion_common::Result<()> {
         let original_udwf = Arc::new(WindowUDF::from(WindowShift::lag()));
         let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
+        let task_ctx_provider = FFI_TaskContextProvider::new(&ctx);
 
-        let mut ffi_udwf = FFI_WindowUDF::new(original_udwf, ctx);
+        let mut ffi_udwf = FFI_WindowUDF::new(original_udwf, task_ctx_provider);
 
         // Verify local libraries can be downcast to their original
         let foreign_udwf: Arc<dyn WindowUDFImpl> = (&ffi_udwf).try_into()?;
@@ -486,7 +490,7 @@ mod tests {
             .is_some());
 
         // Verify different library markers generate foreign providers
-        ffi_udwf.library_marker_id = crate::mock_foreign_marker_id;
+        ffi_udwf.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_udwf: Arc<dyn WindowUDFImpl> = (&ffi_udwf).try_into()?;
         assert!(foreign_udwf
             .as_any()

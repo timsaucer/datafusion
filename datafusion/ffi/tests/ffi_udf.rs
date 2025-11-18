@@ -26,8 +26,8 @@ mod tests {
     use datafusion::error::{DataFusionError, Result};
     use datafusion::logical_expr::{ScalarUDF, ScalarUDFImpl};
     use datafusion::prelude::{col, SessionContext};
-    use datafusion_ffi::tests::create_record_batch;
-    use datafusion_ffi::tests::utils::get_module;
+    use datafusion_ffi::integration_tests::create_record_batch;
+    use datafusion_ffi::integration_tests::utils::get_module;
 
     /// This test validates that we can load an external module and use a scalar
     /// udf defined in it via the foreign function interface. In this case we are
@@ -63,8 +63,8 @@ mod tests {
             ("abs_b", Float64, vec![5., 4., 3., 2., 1.])
         )?;
 
-        assert!(result.len() == 1);
-        assert!(result[0] == expected);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], expected);
 
         Ok(())
     }
@@ -92,7 +92,7 @@ mod tests {
 
         let result = df.collect().await?;
 
-        assert!(result.len() == 1);
+        assert_eq!(result.len(), 1);
         assert_eq!(
             result[0].column_by_name("time_now").unwrap().data_type(),
             &DataType::Float64

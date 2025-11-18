@@ -39,7 +39,7 @@ use super::udf::FFI_ScalarUDF;
 use crate::catalog_provider::FFI_CatalogProvider;
 use crate::catalog_provider_list::FFI_CatalogProviderList;
 use crate::execution::FFI_TaskContextProvider;
-use crate::tests::catalog::create_catalog_provider_list;
+use crate::integration_tests::catalog::create_catalog_provider_list;
 use crate::udaf::FFI_AggregateUDF;
 use crate::udtf::FFI_TableFunction;
 use crate::udwf::FFI_WindowUDF;

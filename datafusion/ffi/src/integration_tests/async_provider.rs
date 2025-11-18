@@ -286,5 +286,6 @@ pub(crate) fn create_async_table_provider(
         true,
         Some(tokio_rt),
         task_ctx_provider,
+        None,
     )
 }

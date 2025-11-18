@@ -53,7 +53,13 @@ extern "C" fn construct_simple_table_provider(
 
     let table_provider = MemTable::try_new(schema, vec![batches]).unwrap();
 
-    FFI_TableProvider::new(Arc::new(table_provider), true, None, task_ctx_provider)
+    FFI_TableProvider::new(
+        Arc::new(table_provider),
+        true,
+        None,
+        task_ctx_provider,
+        None,
+    )
 }
 
 #[export_root_module]

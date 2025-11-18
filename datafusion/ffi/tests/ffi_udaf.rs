@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+mod utils;
+
 /// Add an additional module here for convenience to scope this to only
 /// when the feature integration-tests is built
 #[cfg(feature = "integration-tests")]
@@ -25,22 +27,20 @@ mod tests {
     use datafusion::common::record_batch;
     use datafusion::error::{DataFusionError, Result};
     use datafusion::logical_expr::{AggregateUDF, AggregateUDFImpl};
-    use datafusion::prelude::{col, SessionContext};
-    use datafusion_execution::TaskContextProvider;
-    use datafusion_ffi::tests::utils::get_module;
+    use datafusion::prelude::col;
+    use datafusion_ffi::integration_tests::utils::get_module;
 
     #[tokio::test]
     async fn test_ffi_udaf() -> Result<()> {
         let module = get_module()?;
-        let ctx = Arc::new(SessionContext::default());
-        let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let (ctx, task_ctx_provider) = crate::utils::test_session_and_ctx();
 
         let ffi_sum_func =
             module
                 .create_sum_udaf()
                 .ok_or(DataFusionError::NotImplemented(
                     "External table provider failed to implement create_udaf".to_string(),
-                ))?(task_ctx_provider.into());
+                ))?(task_ctx_provider);
         let foreign_sum_func: Arc<dyn AggregateUDFImpl> = (&ffi_sum_func).try_into()?;
 
         let udaf = AggregateUDF::new_from_shared_impl(foreign_sum_func);
@@ -48,8 +48,7 @@ mod tests {
         let record_batch = record_batch!(
             ("a", Int32, vec![1, 2, 2, 4, 4, 4, 4]),
             ("b", Float64, vec![1.0, 2.0, 2.0, 4.0, 4.0, 4.0, 4.0])
-        )
-        .unwrap();
+        )?;
 
         let df = ctx.read_batch(record_batch)?;
 
@@ -75,15 +74,14 @@ mod tests {
     #[tokio::test]
     async fn test_ffi_grouping_udaf() -> Result<()> {
         let module = get_module()?;
-        let ctx = Arc::new(SessionContext::default());
-        let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
+        let (ctx, task_ctx_provider) = crate::utils::test_session_and_ctx();
 
         let ffi_stddev_func =
             module
                 .create_stddev_udaf()
                 .ok_or(DataFusionError::NotImplemented(
                     "External table provider failed to implement create_udaf".to_string(),
-                ))?(task_ctx_provider.into());
+                ))?(task_ctx_provider);
         let foreign_stddev_func: Arc<dyn AggregateUDFImpl> =
             (&ffi_stddev_func).try_into()?;
 
@@ -104,8 +102,7 @@ mod tests {
                     4.0 + 3.0_f64.sqrt()
                 ]
             )
-        )
-        .unwrap();
+        )?;
 
         let df = ctx.read_batch(record_batch)?;
 

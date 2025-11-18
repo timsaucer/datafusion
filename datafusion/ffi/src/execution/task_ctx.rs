@@ -29,6 +29,7 @@ use datafusion_expr::{
 };
 
 use crate::execution::task_ctx_provider::FFI_TaskContextProvider;
+use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
 use crate::session::config::FFI_SessionConfig;
 use crate::udaf::FFI_AggregateUDF;
 use crate::udf::FFI_ScalarUDF;
@@ -55,6 +56,8 @@ pub struct FFI_TaskContext {
     /// Provider for TaskContext to be used during protobuf serialization
     /// and deserialization.
     pub task_ctx_provider: FFI_TaskContextProvider,
+
+    pub physical_codec: FFI_PhysicalExtensionCodec,
 
     /// Release the memory of the private data when it is no longer being used.
     pub release: unsafe extern "C" fn(arg: &mut Self),
@@ -110,13 +113,18 @@ unsafe extern "C" fn aggregate_functions_fn_wrapper(
     ctx: &FFI_TaskContext,
 ) -> RHashMap<RString, FFI_AggregateUDF> {
     let task_ctx_provider = &ctx.task_ctx_provider;
+    let physical_codec = &ctx.physical_codec;
     let ctx = ctx.inner();
     ctx.aggregate_functions()
         .iter()
         .map(|(name, udaf)| {
             (
                 name.to_owned().into(),
-                FFI_AggregateUDF::new(Arc::clone(udaf), task_ctx_provider.clone()),
+                FFI_AggregateUDF::new(
+                    Arc::clone(udaf),
+                    task_ctx_provider.clone(),
+                    Some(physical_codec.clone()),
+                ),
             )
         })
         .collect()
@@ -153,7 +161,9 @@ impl FFI_TaskContext {
     pub fn new(
         ctx: Arc<TaskContext>,
         task_ctx_provider: impl Into<FFI_TaskContextProvider>,
+        physical_codec: Option<FFI_PhysicalExtensionCodec>,
     ) -> Self {
+        let physical_codec = physical_codec.unwrap_or_default();
         let task_ctx_provider = task_ctx_provider.into();
         let private_data = Box::new(TaskContextPrivateData { ctx });
 
@@ -165,6 +175,7 @@ impl FFI_TaskContext {
             aggregate_functions: aggregate_functions_fn_wrapper,
             window_functions: window_functions_fn_wrapper,
             task_ctx_provider,
+            physical_codec,
             release: release_fn_wrapper,
             private_data: Box::into_raw(private_data) as *mut c_void,
             library_marker_id: crate::get_library_marker_id,
