@@ -79,6 +79,9 @@ pub struct FFI_PhysicalExtensionCodec {
     try_encode_udwf:
         unsafe extern "C" fn(&Self, node: FFI_WindowUDF) -> RResult<RVec<u8>, RString>,
 
+    set_task_ctx_provider:
+        unsafe extern "C" fn(&Self, provider: FFI_TaskContextProvider) -> Self,
+
     /// Used to create a clone on the provider of the execution plan. This should
     /// only need to be called by the receiver of the plan.
     pub clone: unsafe extern "C" fn(plan: &Self) -> Self,
@@ -104,6 +107,7 @@ unsafe impl Sync for FFI_PhysicalExtensionCodec {}
 struct PhysicalExtensionCodecPrivateData {
     provider: Arc<dyn PhysicalExtensionCodec>,
     runtime: Option<Handle>,
+    task_ctx_provider: FFI_TaskContextProvider,
 }
 
 impl FFI_PhysicalExtensionCodec {
@@ -116,6 +120,15 @@ impl FFI_PhysicalExtensionCodec {
         let private_data = self.private_data as *const PhysicalExtensionCodecPrivateData;
         unsafe { &(*private_data).runtime }
     }
+
+    fn task_ctx(&self) -> Result<Arc<TaskContext>> {
+        self.task_ctx_provider().try_into()
+    }
+
+    fn task_ctx_provider(&self) -> &FFI_TaskContextProvider {
+        let private_data = self.private_data as *const PhysicalExtensionCodecPrivateData;
+        unsafe { &(*private_data).task_ctx_provider }
+    }
 }
 
 unsafe extern "C" fn try_decode_fn_wrapper(
@@ -123,11 +136,16 @@ unsafe extern "C" fn try_decode_fn_wrapper(
     buf: RSlice<u8>,
     inputs: RVec<FFI_ExecutionPlan>,
 ) -> RResult<FFI_ExecutionPlan, RString> {
-    let task_ctx_provider = FFI_TaskContextProvider::empty();
-    let task_ctx: Arc<TaskContext> = rresult_return!((&task_ctx_provider).try_into());
+    let task_ctx_provider = codec.task_ctx_provider();
+    let task_ctx = rresult_return!(codec.task_ctx());
     let codec = codec.inner();
     let inputs = inputs
         .into_iter()
+        .map(|mut plan| {
+            // Overwrite empty provider
+            plan.task_ctx_provider = task_ctx_provider.clone();
+            plan
+        })
         .map(|plan| <Arc<dyn ExecutionPlan>>::try_from(&plan))
         .collect::<Result<Vec<_>>>();
     let inputs = rresult_return!(inputs);
@@ -135,14 +153,21 @@ unsafe extern "C" fn try_decode_fn_wrapper(
     let plan =
         rresult_return!(codec.try_decode(buf.as_ref(), &inputs, task_ctx.as_ref()));
 
-    RResult::ROk(FFI_ExecutionPlan::new(plan, task_ctx_provider, None))
+    RResult::ROk(FFI_ExecutionPlan::new(
+        plan,
+        task_ctx_provider.clone(),
+        None,
+    ))
 }
 
 unsafe extern "C" fn try_encode_fn_wrapper(
     codec: &FFI_PhysicalExtensionCodec,
-    node: FFI_ExecutionPlan,
+    mut node: FFI_ExecutionPlan,
 ) -> RResult<RVec<u8>, RString> {
+    // Overwrite empty provider
+    node.task_ctx_provider = codec.task_ctx_provider().clone();
     let codec = codec.inner();
+
     let plan: Arc<dyn ExecutionPlan> = rresult_return!((&node).try_into());
 
     let mut bytes = Vec::new();
@@ -183,7 +208,7 @@ unsafe extern "C" fn try_decode_udaf_fn_wrapper(
     name: RStr,
     buf: RSlice<u8>,
 ) -> RResult<FFI_AggregateUDF, RString> {
-    let task_ctx_provider = FFI_TaskContextProvider::empty();
+    let task_ctx_provider = codec.task_ctx_provider().clone();
     let codec = codec.inner();
     let udaf = rresult_return!(codec.try_decode_udaf(name.into(), buf.as_ref()));
     let udaf = FFI_AggregateUDF::new(udaf, task_ctx_provider);
@@ -193,8 +218,9 @@ unsafe extern "C" fn try_decode_udaf_fn_wrapper(
 
 unsafe extern "C" fn try_encode_udaf_fn_wrapper(
     codec: &FFI_PhysicalExtensionCodec,
-    node: FFI_AggregateUDF,
+    mut node: FFI_AggregateUDF,
 ) -> RResult<RVec<u8>, RString> {
+    node.task_ctx_provider = codec.task_ctx_provider().clone();
     let codec = codec.inner();
     let udaf: Arc<dyn AggregateUDFImpl> = rresult_return!((&node).try_into());
     let udaf = AggregateUDF::new_from_shared_impl(udaf);
@@ -210,7 +236,7 @@ unsafe extern "C" fn try_decode_udwf_fn_wrapper(
     name: RStr,
     buf: RSlice<u8>,
 ) -> RResult<FFI_WindowUDF, RString> {
-    let task_ctx_provider = FFI_TaskContextProvider::empty();
+    let task_ctx_provider = codec.task_ctx_provider().clone();
     let codec = codec.inner();
     let udwf = rresult_return!(codec.try_decode_udwf(name.into(), buf.as_ref()));
     let udwf = FFI_WindowUDF::new(udwf, task_ctx_provider);
@@ -220,8 +246,9 @@ unsafe extern "C" fn try_decode_udwf_fn_wrapper(
 
 unsafe extern "C" fn try_encode_udwf_fn_wrapper(
     codec: &FFI_PhysicalExtensionCodec,
-    node: FFI_WindowUDF,
+    mut node: FFI_WindowUDF,
 ) -> RResult<RVec<u8>, RString> {
+    node.task_ctx_provider = codec.task_ctx_provider().clone();
     let codec = codec.inner();
     let udwf: Arc<dyn WindowUDFImpl> = rresult_return!((&node).try_into());
     let udwf = WindowUDF::new_from_shared_impl(udwf);
@@ -230,6 +257,16 @@ unsafe extern "C" fn try_encode_udwf_fn_wrapper(
     rresult_return!(codec.try_encode_udwf(&udwf, &mut bytes));
 
     RResult::ROk(bytes.into())
+}
+
+unsafe extern "C" fn set_task_ctx_provider_fn_wrapper(
+    codec: &FFI_PhysicalExtensionCodec,
+    provider: FFI_TaskContextProvider,
+) -> FFI_PhysicalExtensionCodec {
+    let codec = codec.clone();
+    let private_data = codec.private_data as *mut PhysicalExtensionCodecPrivateData;
+    (*private_data).task_ctx_provider = provider.into();
+    codec
 }
 
 unsafe extern "C" fn release_fn_wrapper(provider: &mut FFI_PhysicalExtensionCodec) {
@@ -259,8 +296,12 @@ impl FFI_PhysicalExtensionCodec {
         provider: Arc<dyn PhysicalExtensionCodec + Send>,
         runtime: Option<Handle>,
     ) -> Self {
-        let private_data =
-            Box::new(PhysicalExtensionCodecPrivateData { provider, runtime });
+        let task_ctx_provider = FFI_TaskContextProvider::empty();
+        let private_data = Box::new(PhysicalExtensionCodecPrivateData {
+            provider,
+            runtime,
+            task_ctx_provider,
+        });
 
         Self {
             try_decode: try_decode_fn_wrapper,
@@ -271,6 +312,7 @@ impl FFI_PhysicalExtensionCodec {
             try_encode_udaf: try_encode_udaf_fn_wrapper,
             try_decode_udwf: try_decode_udwf_fn_wrapper,
             try_encode_udwf: try_encode_udwf_fn_wrapper,
+            set_task_ctx_provider: set_task_ctx_provider_fn_wrapper,
 
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,

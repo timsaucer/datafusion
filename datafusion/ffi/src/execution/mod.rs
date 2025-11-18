@@ -16,7 +16,7 @@
 // under the License.
 
 mod task_ctx;
-mod task_ctx_provider;
+pub mod task_ctx_provider;
 
 pub use task_ctx::FFI_TaskContext;
 pub use task_ctx_provider::FFI_TaskContextProvider;
