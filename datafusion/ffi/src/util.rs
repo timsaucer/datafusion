@@ -17,12 +17,14 @@
 
 use std::sync::Arc;
 
-use abi_stable::std_types::RVec;
+use abi_stable::std_types::{RResult, RString, RVec};
 use arrow::datatypes::{DataType, Field};
 use arrow::ffi::FFI_ArrowSchema;
 use arrow_schema::FieldRef;
 
 use crate::arrow_wrappers::WrappedSchema;
+
+pub type FFIResult<T> = RResult<T, RString>;
 
 /// This macro is a helpful conversion utility to convert from an abi_stable::RResult to a
 /// DataFusion result.
@@ -139,13 +141,13 @@ mod tests {
 
         let returned_ok_result = df_result!(ok_r_result);
         assert!(returned_ok_result.is_ok());
-        assert!(returned_ok_result.unwrap().to_string() == VALID_VALUE);
+        assert_eq!(returned_ok_result.unwrap().to_string(), VALID_VALUE);
 
         let returned_err_result = df_result!(err_r_result);
         assert!(returned_err_result.is_err());
-        assert!(
-            returned_err_result.unwrap_err().strip_backtrace()
-                == format!("Execution error: FFI error: {ERROR_VALUE}")
+        assert_eq!(
+            returned_err_result.unwrap_err().strip_backtrace(),
+            format!("Execution error: FFI error: {ERROR_VALUE}")
         );
 
         let ok_result: Result<String, DataFusionError> = Ok(VALID_VALUE.to_string());
@@ -153,7 +155,7 @@ mod tests {
             datafusion_common::exec_err!("{ERROR_VALUE}");
 
         let returned_ok_r_result = wrap_result(ok_result);
-        assert!(returned_ok_r_result == RResult::ROk(VALID_VALUE.into()));
+        assert_eq!(returned_ok_r_result, RResult::ROk(VALID_VALUE.into()));
 
         let returned_err_r_result = wrap_result(err_result);
         assert!(returned_err_r_result.is_err());
