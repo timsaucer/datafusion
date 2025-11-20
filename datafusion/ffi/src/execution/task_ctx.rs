@@ -28,7 +28,6 @@ use datafusion_expr::{
     AggregateUDF, AggregateUDFImpl, ScalarUDF, ScalarUDFImpl, WindowUDF, WindowUDFImpl,
 };
 
-use crate::execution::task_ctx_provider::FFI_TaskContextProvider;
 use crate::session::config::FFI_SessionConfig;
 use crate::udaf::FFI_AggregateUDF;
 use crate::udf::FFI_ScalarUDF;
@@ -51,10 +50,6 @@ pub struct FFI_TaskContext {
         unsafe extern "C" fn(&Self) -> RHashMap<RString, FFI_AggregateUDF>,
 
     pub window_functions: unsafe extern "C" fn(&Self) -> RHashMap<RString, FFI_WindowUDF>,
-
-    /// Provider for TaskContext to be used during protobuf serialization
-    /// and deserialization.
-    pub task_ctx_provider: FFI_TaskContextProvider,
 
     /// Release the memory of the private data when it is no longer being used.
     pub release: unsafe extern "C" fn(arg: &mut Self),
@@ -142,12 +137,8 @@ impl Drop for FFI_TaskContext {
     }
 }
 
-impl FFI_TaskContext {
-    pub fn new(
-        ctx: Arc<TaskContext>,
-        task_ctx_provider: impl Into<FFI_TaskContextProvider>,
-    ) -> Self {
-        let task_ctx_provider = task_ctx_provider.into();
+impl From<Arc<TaskContext>> for FFI_TaskContext {
+    fn from(ctx: Arc<TaskContext>) -> Self {
         let private_data = Box::new(TaskContextPrivateData { ctx });
 
         FFI_TaskContext {
@@ -157,7 +148,6 @@ impl FFI_TaskContext {
             scalar_functions: scalar_functions_fn_wrapper,
             aggregate_functions: aggregate_functions_fn_wrapper,
             window_functions: window_functions_fn_wrapper,
-            task_ctx_provider,
             release: release_fn_wrapper,
             private_data: Box::into_raw(private_data) as *mut c_void,
             library_marker_id: crate::get_library_marker_id,

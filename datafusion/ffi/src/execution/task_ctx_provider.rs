@@ -75,7 +75,7 @@ unsafe extern "C" fn task_ctx_fn_wrapper(
 ) -> RResult<FFI_TaskContext, RString> {
     rresult!(ctx_provider
         .inner()
-        .map(|ctx| FFI_TaskContext::new(ctx, ctx_provider.clone(),))
+        .map(FFI_TaskContext::from)
         .ok_or_else(|| {
             exec_datafusion_err!(
                 "TaskContextProvider went out of scope over FFI boundary."

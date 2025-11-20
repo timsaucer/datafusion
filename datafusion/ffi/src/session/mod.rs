@@ -50,7 +50,7 @@ use prost::Message;
 use tokio::runtime::Handle;
 
 use crate::arrow_wrappers::WrappedSchema;
-use crate::execution::{FFI_TaskContext, FFI_TaskContextProvider};
+use crate::execution::FFI_TaskContext;
 use crate::execution_plan::FFI_ExecutionPlan;
 use crate::physical_expr::FFI_PhysicalExpr;
 use crate::proto::logical_extension_codec::FFI_LogicalExtensionCodec;
@@ -255,8 +255,7 @@ unsafe extern "C" fn default_table_options_fn_wrapper(
 }
 
 unsafe extern "C" fn task_ctx_fn_wrapper(session: &FFI_Session) -> FFI_TaskContext {
-    // TODO(tsaucer) remove task ctx provider and codec
-    FFI_TaskContext::new(session.inner().task_ctx(), FFI_TaskContextProvider::empty())
+    session.inner().task_ctx().into()
 }
 
 unsafe extern "C" fn release_fn_wrapper(provider: &mut FFI_Session) {
