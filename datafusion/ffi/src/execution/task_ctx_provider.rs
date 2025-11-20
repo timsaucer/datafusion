@@ -16,7 +16,7 @@
 // under the License.
 
 use std::ffi::c_void;
-use std::sync::{Arc, OnceLock, Weak};
+use std::sync::{Arc, Weak};
 
 use abi_stable::std_types::{RResult, RString};
 use abi_stable::StableAbi;
@@ -113,8 +113,8 @@ impl Clone for FFI_TaskContextProvider {
     }
 }
 
-impl FFI_TaskContextProvider {
-    pub fn new(ctx: &Arc<dyn TaskContextProvider>) -> Self {
+impl From<&Arc<dyn TaskContextProvider>> for FFI_TaskContextProvider {
+    fn from(ctx: &Arc<dyn TaskContextProvider>) -> Self {
         let ctx = Arc::downgrade(ctx);
         let private_data = Box::new(TaskContextProviderPrivateData { ctx });
 
@@ -144,28 +144,5 @@ impl TryFrom<&FFI_TaskContextProvider> for Arc<TaskContext> {
                 .map(Into::into)
                 .map(Arc::new)
         }
-    }
-}
-
-static GLOBAL_EMPTY_PROVIDER: OnceLock<Arc<dyn TaskContextProvider + Send + Sync>> =
-    OnceLock::new();
-
-pub(crate) struct EmtpyTaskContextProvider {}
-
-impl TaskContextProvider for EmtpyTaskContextProvider {
-    fn task_ctx(&self) -> Arc<TaskContext> {
-        Arc::new(TaskContext::default())
-    }
-}
-
-impl FFI_TaskContextProvider {
-    pub fn empty() -> Self {
-        let provider = GLOBAL_EMPTY_PROVIDER.get_or_init(|| {
-            Arc::new(EmtpyTaskContextProvider {})
-                as Arc<dyn TaskContextProvider + Send + Sync>
-        });
-
-        let provider = Arc::clone(provider) as Arc<dyn TaskContextProvider>;
-        FFI_TaskContextProvider::new(&provider)
     }
 }

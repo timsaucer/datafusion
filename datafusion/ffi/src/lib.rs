@@ -97,7 +97,7 @@ pub mod tests {
     {
         let ctx = Arc::new(SessionContext::new());
         let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
-        let task_ctx_provider = FFI_TaskContextProvider::new(&task_ctx_provider);
+        let task_ctx_provider = FFI_TaskContextProvider::from(&task_ctx_provider);
 
         (ctx, task_ctx_provider)
     }

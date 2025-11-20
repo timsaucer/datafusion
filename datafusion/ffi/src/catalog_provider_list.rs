@@ -187,10 +187,14 @@ impl FFI_CatalogProviderList {
         task_ctx_provider: impl Into<FFI_TaskContextProvider>,
         logical_codec: Option<Arc<dyn LogicalExtensionCodec>>,
     ) -> Self {
+        let task_ctx_provider = task_ctx_provider.into();
         let logical_codec =
             logical_codec.unwrap_or_else(|| Arc::new(DefaultLogicalExtensionCodec {}));
-        let logical_codec =
-            FFI_LogicalExtensionCodec::new(logical_codec, runtime.clone());
+        let logical_codec = FFI_LogicalExtensionCodec::new(
+            logical_codec,
+            runtime.clone(),
+            task_ctx_provider.clone(),
+        );
         Self::new_with_ffi_codec(provider, runtime, task_ctx_provider, logical_codec)
     }
     pub fn new_with_ffi_codec(

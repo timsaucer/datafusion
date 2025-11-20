@@ -88,8 +88,7 @@ pub struct FFI_LogicalExtensionCodec {
     try_encode_udwf:
         unsafe extern "C" fn(&Self, node: FFI_WindowUDF) -> RResult<RVec<u8>, RString>,
 
-    set_task_ctx_provider:
-        unsafe extern "C" fn(&Self, provider: FFI_TaskContextProvider) -> Self,
+    task_ctx_provider: FFI_TaskContextProvider,
 
     /// Used to create a clone on the provider of the execution plan. This should
     /// only need to be called by the receiver of the plan.
@@ -116,7 +115,6 @@ unsafe impl Sync for FFI_LogicalExtensionCodec {}
 struct LogicalExtensionCodecPrivateData {
     provider: Arc<dyn LogicalExtensionCodec>,
     runtime: Option<Handle>,
-    task_ctx_provider: FFI_TaskContextProvider,
 }
 
 impl FFI_LogicalExtensionCodec {
@@ -131,12 +129,7 @@ impl FFI_LogicalExtensionCodec {
     }
 
     fn task_ctx(&self) -> Result<Arc<TaskContext>> {
-        self.task_ctx_provider().try_into()
-    }
-
-    fn task_ctx_provider(&self) -> &FFI_TaskContextProvider {
-        let private_data = self.private_data as *const LogicalExtensionCodecPrivateData;
-        unsafe { &(*private_data).task_ctx_provider }
+        (&self.task_ctx_provider).try_into()
     }
 }
 
@@ -146,7 +139,7 @@ unsafe extern "C" fn try_decode_table_provider_fn_wrapper(
     table_ref: RStr,
     schema: WrappedSchema,
 ) -> RResult<FFI_TableProvider, RString> {
-    let task_ctx_provider = codec.task_ctx_provider().clone();
+    let task_ctx_provider = codec.task_ctx_provider.clone();
     let logical_codec = codec.clone();
     let ctx = rresult_return!(codec.task_ctx());
     let runtime = codec.runtime().clone();
@@ -173,9 +166,8 @@ unsafe extern "C" fn try_decode_table_provider_fn_wrapper(
 unsafe extern "C" fn try_encode_table_provider_fn_wrapper(
     codec: &FFI_LogicalExtensionCodec,
     table_ref: RStr,
-    mut node: FFI_TableProvider,
+    node: FFI_TableProvider,
 ) -> RResult<RVec<u8>, RString> {
-    node.task_ctx_provider = codec.task_ctx_provider().clone();
     let table_ref = TableReference::from(table_ref.as_str());
     let table_provider: Arc<dyn TableProvider> = (&node).into();
     let codec = codec.inner();
@@ -269,16 +261,6 @@ unsafe extern "C" fn try_encode_udwf_fn_wrapper(
     RResult::ROk(bytes.into())
 }
 
-unsafe extern "C" fn set_task_ctx_provider_fn_wrapper(
-    codec: &FFI_LogicalExtensionCodec,
-    provider: FFI_TaskContextProvider,
-) -> FFI_LogicalExtensionCodec {
-    let codec = codec.clone();
-    let private_data = codec.private_data as *mut LogicalExtensionCodecPrivateData;
-    (*private_data).task_ctx_provider = provider;
-    codec
-}
-
 unsafe extern "C" fn release_fn_wrapper(provider: &mut FFI_LogicalExtensionCodec) {
     let private_data =
         Box::from_raw(provider.private_data as *mut LogicalExtensionCodecPrivateData);
@@ -291,7 +273,7 @@ unsafe extern "C" fn clone_fn_wrapper(
     let old_codec = Arc::clone(codec.inner());
     let runtime = codec.runtime().clone();
 
-    FFI_LogicalExtensionCodec::new(old_codec, runtime)
+    FFI_LogicalExtensionCodec::new(old_codec, runtime, codec.task_ctx_provider.clone())
 }
 
 impl Drop for FFI_LogicalExtensionCodec {
@@ -305,13 +287,11 @@ impl FFI_LogicalExtensionCodec {
     pub fn new(
         provider: Arc<dyn LogicalExtensionCodec + Send>,
         runtime: Option<Handle>,
+        task_ctx_provider: impl Into<FFI_TaskContextProvider>,
     ) -> Self {
-        let task_ctx_provider = FFI_TaskContextProvider::empty();
-        let private_data = Box::new(LogicalExtensionCodecPrivateData {
-            provider,
-            runtime,
-            task_ctx_provider,
-        });
+        let task_ctx_provider = task_ctx_provider.into();
+        let private_data =
+            Box::new(LogicalExtensionCodecPrivateData { provider, runtime });
 
         Self {
             try_decode_table_provider: try_decode_table_provider_fn_wrapper,
@@ -322,7 +302,7 @@ impl FFI_LogicalExtensionCodec {
             try_encode_udaf: try_encode_udaf_fn_wrapper,
             try_decode_udwf: try_decode_udwf_fn_wrapper,
             try_encode_udwf: try_encode_udwf_fn_wrapper,
-            set_task_ctx_provider: set_task_ctx_provider_fn_wrapper,
+            task_ctx_provider,
 
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
@@ -403,12 +383,11 @@ impl LogicalExtensionCodec for ForeignLogicalExtensionCodec {
         buf: &mut Vec<u8>,
     ) -> Result<()> {
         let table_ref = table_ref.to_string();
-        let task_ctx_provider = FFI_TaskContextProvider::empty();
         let node = FFI_TableProvider::new_with_ffi_codec(
             node,
             true,
             None,
-            task_ctx_provider,
+            self.0.task_ctx_provider.clone(),
             self.0.clone(),
         );
 
@@ -500,7 +479,6 @@ mod tests {
 
     use arrow::array::record_batch;
     use arrow_schema::{DataType, Field, Schema, SchemaRef};
-    use datafusion::prelude::SessionContext;
     use datafusion_catalog::{MemTable, TableProvider};
     use datafusion_common::{exec_err, TableReference};
     use datafusion_datasource::file_format::FileFormatFactory;
@@ -656,9 +634,10 @@ mod tests {
     fn roundtrip_ffi_logical_extension_codec_table_provider(
     ) -> datafusion_common::Result<()> {
         let codec = Arc::new(TestExtensionCodec {});
-        let ctx = Arc::new(SessionContext::new());
+        let (ctx, task_ctx_provider) = crate::tests::test_session_and_ctx();
 
-        let mut ffi_codec = FFI_LogicalExtensionCodec::new(codec, None);
+        let mut ffi_codec =
+            FFI_LogicalExtensionCodec::new(codec, None, task_ctx_provider);
         ffi_codec.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_codec: Arc<dyn LogicalExtensionCodec> = (&ffi_codec).into();
 
@@ -681,8 +660,10 @@ mod tests {
     #[test]
     fn roundtrip_ffi_logical_extension_codec_udf() -> datafusion_common::Result<()> {
         let codec = Arc::new(TestExtensionCodec {});
+        let (_ctx, task_ctx_provider) = crate::tests::test_session_and_ctx();
 
-        let mut ffi_codec = FFI_LogicalExtensionCodec::new(codec, None);
+        let mut ffi_codec =
+            FFI_LogicalExtensionCodec::new(codec, None, task_ctx_provider);
         ffi_codec.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_codec: Arc<dyn LogicalExtensionCodec> = (&ffi_codec).into();
 
@@ -700,8 +681,10 @@ mod tests {
     #[test]
     fn roundtrip_ffi_logical_extension_codec_udaf() -> datafusion_common::Result<()> {
         let codec = Arc::new(TestExtensionCodec {});
+        let (_ctx, task_ctx_provider) = crate::tests::test_session_and_ctx();
 
-        let mut ffi_codec = FFI_LogicalExtensionCodec::new(codec, None);
+        let mut ffi_codec =
+            FFI_LogicalExtensionCodec::new(codec, None, task_ctx_provider);
         ffi_codec.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_codec: Arc<dyn LogicalExtensionCodec> = (&ffi_codec).into();
 
@@ -719,8 +702,10 @@ mod tests {
     #[test]
     fn roundtrip_ffi_logical_extension_codec_udwf() -> datafusion_common::Result<()> {
         let codec = Arc::new(TestExtensionCodec {});
+        let (_ctx, task_ctx_provider) = crate::tests::test_session_and_ctx();
 
-        let mut ffi_codec = FFI_LogicalExtensionCodec::new(codec, None);
+        let mut ffi_codec =
+            FFI_LogicalExtensionCodec::new(codec, None, task_ctx_provider);
         ffi_codec.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_codec: Arc<dyn LogicalExtensionCodec> = (&ffi_codec).into();
 
@@ -742,8 +727,10 @@ mod tests {
     fn ffi_logical_extension_codec_local_bypass() {
         let codec =
             Arc::new(TestExtensionCodec {}) as Arc<dyn LogicalExtensionCodec + Send>;
+        let (_ctx, task_ctx_provider) = crate::tests::test_session_and_ctx();
 
-        let mut ffi_codec = FFI_LogicalExtensionCodec::new(Arc::clone(&codec), None);
+        let mut ffi_codec =
+            FFI_LogicalExtensionCodec::new(Arc::clone(&codec), None, task_ctx_provider);
 
         let codec = codec as Arc<dyn LogicalExtensionCodec>;
         // Verify local libraries can be downcast to their original

@@ -150,11 +150,14 @@ impl FFI_TableFunction {
         task_ctx_provider: impl Into<FFI_TaskContextProvider>,
         logical_codec: Option<Arc<dyn LogicalExtensionCodec>>,
     ) -> Self {
+        let task_ctx_provider = task_ctx_provider.into();
         let logical_codec =
             logical_codec.unwrap_or_else(|| Arc::new(DefaultLogicalExtensionCodec {}));
-        let logical_codec =
-            FFI_LogicalExtensionCodec::new(logical_codec, runtime.clone());
-        let task_ctx_provider = task_ctx_provider.into();
+        let logical_codec = FFI_LogicalExtensionCodec::new(
+            logical_codec,
+            runtime.clone(),
+            task_ctx_provider.clone(),
+        );
         let private_data = Box::new(TableFunctionPrivateData { udtf, runtime });
 
         Self {
@@ -312,7 +315,7 @@ mod tests {
         let original_udtf = Arc::new(TestUDTF {}) as Arc<dyn TableFunctionImpl>;
         let ctx = Arc::new(SessionContext::default());
         let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
-        let task_ctx_provider = FFI_TaskContextProvider::new(&task_ctx_provider);
+        let task_ctx_provider = FFI_TaskContextProvider::from(&task_ctx_provider);
 
         let mut local_udtf: FFI_TableFunction = FFI_TableFunction::new(
             Arc::clone(&original_udtf),
@@ -353,7 +356,7 @@ mod tests {
         let original_udtf = Arc::new(TestUDTF {}) as Arc<dyn TableFunctionImpl>;
 
         let ctx = Arc::new(SessionContext::default()) as Arc<dyn TaskContextProvider>;
-        let task_ctx_provider = FFI_TaskContextProvider::new(&ctx);
+        let task_ctx_provider = FFI_TaskContextProvider::from(&ctx);
         let mut ffi_udtf = FFI_TableFunction::new(
             Arc::clone(&original_udtf),
             None,

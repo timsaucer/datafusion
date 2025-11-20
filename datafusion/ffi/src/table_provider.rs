@@ -352,10 +352,14 @@ impl FFI_TableProvider {
         task_ctx_provider: impl Into<FFI_TaskContextProvider>,
         logical_codec: Option<Arc<dyn LogicalExtensionCodec>>,
     ) -> Self {
+        let task_ctx_provider = task_ctx_provider.into();
         let logical_codec =
             logical_codec.unwrap_or_else(|| Arc::new(DefaultLogicalExtensionCodec {}));
-        let logical_codec =
-            FFI_LogicalExtensionCodec::new(logical_codec, runtime.clone());
+        let logical_codec = FFI_LogicalExtensionCodec::new(
+            logical_codec,
+            runtime.clone(),
+            task_ctx_provider.clone(),
+        );
         Self::new_with_ffi_codec(
             provider,
             can_support_pushdown_filters,
@@ -567,7 +571,7 @@ mod tests {
         let provider = create_test_table_provider()?;
         let ctx = Arc::new(SessionContext::new());
         let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
-        let task_ctx_provider = FFI_TaskContextProvider::new(&task_ctx_provider);
+        let task_ctx_provider = FFI_TaskContextProvider::from(&task_ctx_provider);
 
         let mut ffi_provider =
             FFI_TableProvider::new(provider, true, None, task_ctx_provider, None);
@@ -592,7 +596,7 @@ mod tests {
         let provider = create_test_table_provider()?;
         let ctx = Arc::new(SessionContext::new());
         let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
-        let task_ctx_provider = FFI_TaskContextProvider::new(&task_ctx_provider);
+        let task_ctx_provider = FFI_TaskContextProvider::from(&task_ctx_provider);
 
         let mut ffi_provider =
             FFI_TableProvider::new(provider, true, None, task_ctx_provider, None);
@@ -640,7 +644,7 @@ mod tests {
 
         let ctx = Arc::new(SessionContext::new());
         let task_ctx_provider = Arc::clone(&ctx) as Arc<dyn TaskContextProvider>;
-        let task_ctx_provider = FFI_TaskContextProvider::new(&task_ctx_provider);
+        let task_ctx_provider = FFI_TaskContextProvider::from(&task_ctx_provider);
 
         let provider = Arc::new(MemTable::try_new(schema, vec![vec![batch1]])?);
 
@@ -673,7 +677,7 @@ mod tests {
         let table_provider = create_test_table_provider()?;
 
         let ctx = Arc::new(SessionContext::new()) as Arc<dyn TaskContextProvider>;
-        let task_ctx_provider = FFI_TaskContextProvider::new(&ctx);
+        let task_ctx_provider = FFI_TaskContextProvider::from(&ctx);
         let mut ffi_table =
             FFI_TableProvider::new(table_provider, false, None, task_ctx_provider, None);
 

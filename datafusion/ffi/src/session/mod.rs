@@ -50,7 +50,7 @@ use prost::Message;
 use tokio::runtime::Handle;
 
 use crate::arrow_wrappers::WrappedSchema;
-use crate::execution::FFI_TaskContext;
+use crate::execution::{FFI_TaskContext, FFI_TaskContextProvider};
 use crate::execution_plan::FFI_ExecutionPlan;
 use crate::physical_expr::FFI_PhysicalExpr;
 use crate::proto::logical_extension_codec::FFI_LogicalExtensionCodec;
@@ -304,11 +304,16 @@ impl FFI_Session {
         session: &(dyn Session + Send + Sync),
         runtime: Option<Handle>,
         logical_codec: Option<Arc<dyn LogicalExtensionCodec>>,
+        task_ctx_provider: impl Into<FFI_TaskContextProvider>,
     ) -> Self {
+        let task_ctx_provider = task_ctx_provider.into();
         let logical_codec =
             logical_codec.unwrap_or_else(|| Arc::new(DefaultLogicalExtensionCodec {}));
-        let logical_codec =
-            FFI_LogicalExtensionCodec::new(logical_codec, runtime.clone());
+        let logical_codec = FFI_LogicalExtensionCodec::new(
+            logical_codec,
+            runtime.clone(),
+            task_ctx_provider,
+        );
         Self::new_with_ffi_codec(session, runtime, logical_codec)
     }
 
@@ -550,7 +555,6 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_schema::{DataType, Field, Schema};
-    use datafusion::prelude::SessionContext;
     use datafusion_common::DataFusionError;
     use datafusion_expr::col;
     use datafusion_expr::registry::FunctionRegistry;
@@ -559,10 +563,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_ffi_session() -> Result<(), DataFusionError> {
-        let ctx = Arc::new(SessionContext::new());
+        let (ctx, task_ctx_provider) = crate::tests::test_session_and_ctx();
         let state = ctx.state();
 
-        let local_session = FFI_Session::new(&state, None, None);
+        let local_session = FFI_Session::new(&state, None, None, task_ctx_provider);
         let foreign_session = ForeignSession::try_from(&local_session)?;
 
         let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
