@@ -158,6 +158,18 @@ impl FFI_TableFunction {
             runtime.clone(),
             task_ctx_provider.clone(),
         );
+
+        Self::new_with_ffi_codec(udtf, runtime, task_ctx_provider, logical_codec)
+    }
+
+    pub fn new_with_ffi_codec(
+        udtf: Arc<dyn TableFunctionImpl>,
+        runtime: Option<Handle>,
+        task_ctx_provider: impl Into<FFI_TaskContextProvider>,
+        logical_codec: FFI_LogicalExtensionCodec,
+    ) -> Self {
+        let task_ctx_provider = task_ctx_provider.into();
+
         let private_data = Box::new(TableFunctionPrivateData { udtf, runtime });
 
         Self {
