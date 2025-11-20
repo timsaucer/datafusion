@@ -36,7 +36,6 @@ use tokio::runtime::Handle;
 
 use crate::arrow_wrappers::WrappedSchema;
 use crate::execution::FFI_TaskContextProvider;
-use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
 use crate::table_provider::FFI_TableProvider;
 use crate::udaf::FFI_AggregateUDF;
 use crate::udf::FFI_ScalarUDF;
@@ -91,8 +90,6 @@ pub struct FFI_LogicalExtensionCodec {
 
     set_task_ctx_provider:
         unsafe extern "C" fn(&Self, provider: FFI_TaskContextProvider) -> Self,
-
-    pub physical_codec: FFI_PhysicalExtensionCodec,
 
     /// Used to create a clone on the provider of the execution plan. This should
     /// only need to be called by the receiver of the plan.
@@ -294,7 +291,7 @@ unsafe extern "C" fn clone_fn_wrapper(
     let old_codec = Arc::clone(codec.inner());
     let runtime = codec.runtime().clone();
 
-    FFI_LogicalExtensionCodec::new(old_codec, runtime, Some(codec.physical_codec.clone()))
+    FFI_LogicalExtensionCodec::new(old_codec, runtime)
 }
 
 impl Drop for FFI_LogicalExtensionCodec {
@@ -308,9 +305,7 @@ impl FFI_LogicalExtensionCodec {
     pub fn new(
         provider: Arc<dyn LogicalExtensionCodec + Send>,
         runtime: Option<Handle>,
-        physical_codec: Option<FFI_PhysicalExtensionCodec>,
     ) -> Self {
-        let physical_codec = physical_codec.unwrap_or_default();
         let task_ctx_provider = FFI_TaskContextProvider::empty();
         let private_data = Box::new(LogicalExtensionCodecPrivateData {
             provider,
@@ -328,7 +323,6 @@ impl FFI_LogicalExtensionCodec {
             try_decode_udwf: try_decode_udwf_fn_wrapper,
             try_encode_udwf: try_encode_udwf_fn_wrapper,
             set_task_ctx_provider: set_task_ctx_provider_fn_wrapper,
-            physical_codec,
 
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
@@ -664,7 +658,7 @@ mod tests {
         let codec = Arc::new(TestExtensionCodec {});
         let ctx = Arc::new(SessionContext::new());
 
-        let mut ffi_codec = FFI_LogicalExtensionCodec::new(codec, None, None);
+        let mut ffi_codec = FFI_LogicalExtensionCodec::new(codec, None);
         ffi_codec.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_codec: Arc<dyn LogicalExtensionCodec> = (&ffi_codec).into();
 
@@ -688,7 +682,7 @@ mod tests {
     fn roundtrip_ffi_logical_extension_codec_udf() -> datafusion_common::Result<()> {
         let codec = Arc::new(TestExtensionCodec {});
 
-        let mut ffi_codec = FFI_LogicalExtensionCodec::new(codec, None, None);
+        let mut ffi_codec = FFI_LogicalExtensionCodec::new(codec, None);
         ffi_codec.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_codec: Arc<dyn LogicalExtensionCodec> = (&ffi_codec).into();
 
@@ -707,7 +701,7 @@ mod tests {
     fn roundtrip_ffi_logical_extension_codec_udaf() -> datafusion_common::Result<()> {
         let codec = Arc::new(TestExtensionCodec {});
 
-        let mut ffi_codec = FFI_LogicalExtensionCodec::new(codec, None, None);
+        let mut ffi_codec = FFI_LogicalExtensionCodec::new(codec, None);
         ffi_codec.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_codec: Arc<dyn LogicalExtensionCodec> = (&ffi_codec).into();
 
@@ -726,7 +720,7 @@ mod tests {
     fn roundtrip_ffi_logical_extension_codec_udwf() -> datafusion_common::Result<()> {
         let codec = Arc::new(TestExtensionCodec {});
 
-        let mut ffi_codec = FFI_LogicalExtensionCodec::new(codec, None, None);
+        let mut ffi_codec = FFI_LogicalExtensionCodec::new(codec, None);
         ffi_codec.library_marker_id = crate::tests::mock_foreign_marker_id;
         let foreign_codec: Arc<dyn LogicalExtensionCodec> = (&ffi_codec).into();
 
@@ -749,8 +743,7 @@ mod tests {
         let codec =
             Arc::new(TestExtensionCodec {}) as Arc<dyn LogicalExtensionCodec + Send>;
 
-        let mut ffi_codec =
-            FFI_LogicalExtensionCodec::new(Arc::clone(&codec), None, None);
+        let mut ffi_codec = FFI_LogicalExtensionCodec::new(Arc::clone(&codec), None);
 
         let codec = codec as Arc<dyn LogicalExtensionCodec>;
         // Verify local libraries can be downcast to their original

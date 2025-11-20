@@ -24,7 +24,6 @@ use datafusion_common::{exec_datafusion_err, DataFusionError};
 use datafusion_execution::{TaskContext, TaskContextProvider};
 
 use crate::execution::task_ctx::FFI_TaskContext;
-use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
 use crate::{df_result, rresult};
 
 /// Struct for accessing the [`TaskContext`]. This method contains a weak
@@ -37,8 +36,6 @@ use crate::{df_result, rresult};
 #[allow(non_camel_case_types)]
 pub struct FFI_TaskContextProvider {
     pub task_ctx: unsafe extern "C" fn(&Self) -> RResult<FFI_TaskContext, RString>,
-
-    physical_codec: FFI_PhysicalExtensionCodec,
 
     /// Used to create a clone on the task context accessor. This should
     /// only need to be called by the receiver of the plan.
@@ -93,7 +90,6 @@ unsafe extern "C" fn clone_fn_wrapper(
 
     FFI_TaskContextProvider {
         task_ctx: task_ctx_fn_wrapper,
-        physical_codec: provider.physical_codec.clone(),
         release: release_fn_wrapper,
         clone: clone_fn_wrapper,
         private_data: Box::into_raw(private_data) as *mut c_void,
@@ -122,11 +118,8 @@ impl FFI_TaskContextProvider {
         let ctx = Arc::downgrade(ctx);
         let private_data = Box::new(TaskContextProviderPrivateData { ctx });
 
-        let physical_codec = FFI_PhysicalExtensionCodec::default();
-
         FFI_TaskContextProvider {
             task_ctx: task_ctx_fn_wrapper,
-            physical_codec,
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
             private_data: Box::into_raw(private_data) as *mut c_void,

@@ -153,7 +153,7 @@ impl FFI_TableFunction {
         let logical_codec =
             logical_codec.unwrap_or_else(|| Arc::new(DefaultLogicalExtensionCodec {}));
         let logical_codec =
-            FFI_LogicalExtensionCodec::new(logical_codec, runtime.clone(), None);
+            FFI_LogicalExtensionCodec::new(logical_codec, runtime.clone());
         let task_ctx_provider = task_ctx_provider.into();
         let private_data = Box::new(TableFunctionPrivateData { udtf, runtime });
 

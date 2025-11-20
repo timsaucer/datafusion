@@ -355,7 +355,7 @@ impl FFI_TableProvider {
         let logical_codec =
             logical_codec.unwrap_or_else(|| Arc::new(DefaultLogicalExtensionCodec {}));
         let logical_codec =
-            FFI_LogicalExtensionCodec::new(logical_codec, runtime.clone(), None);
+            FFI_LogicalExtensionCodec::new(logical_codec, runtime.clone());
         Self::new_with_ffi_codec(
             provider,
             can_support_pushdown_filters,
