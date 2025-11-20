@@ -199,19 +199,17 @@ unsafe extern "C" fn try_decode_udaf_fn_wrapper(
     name: RStr,
     buf: RSlice<u8>,
 ) -> RResult<FFI_AggregateUDF, RString> {
-    let task_ctx_provider = codec.task_ctx_provider().clone();
     let codec_inner = codec.inner();
     let udaf = rresult_return!(codec_inner.try_decode_udaf(name.into(), buf.as_ref()));
-    let udaf = FFI_AggregateUDF::new(udaf, task_ctx_provider, Some(codec.clone()));
+    let udaf = FFI_AggregateUDF::new(udaf);
 
     RResult::ROk(udaf)
 }
 
 unsafe extern "C" fn try_encode_udaf_fn_wrapper(
     codec: &FFI_PhysicalExtensionCodec,
-    mut node: FFI_AggregateUDF,
+    node: FFI_AggregateUDF,
 ) -> RResult<RVec<u8>, RString> {
-    node.task_ctx_provider = codec.task_ctx_provider().clone();
     let codec = codec.inner();
     let udaf: Arc<dyn AggregateUDFImpl> = rresult_return!((&node).try_into());
     let udaf = AggregateUDF::new_from_shared_impl(udaf);
@@ -404,11 +402,7 @@ impl PhysicalExtensionCodec for ForeignPhysicalExtensionCodec {
 
     fn try_encode_udaf(&self, node: &AggregateUDF, buf: &mut Vec<u8>) -> Result<()> {
         let node = Arc::new(node.clone());
-        let node = FFI_AggregateUDF::new(
-            node,
-            FFI_TaskContextProvider::empty(),
-            Some(self.0.clone()),
-        );
+        let node = FFI_AggregateUDF::new(node);
         let bytes = df_result!(unsafe { (self.0.try_encode_udaf)(&self.0, node) })?;
 
         buf.extend(bytes);

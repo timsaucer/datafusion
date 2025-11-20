@@ -218,21 +218,12 @@ unsafe extern "C" fn scalar_functions_fn_wrapper(
 unsafe extern "C" fn aggregate_functions_fn_wrapper(
     session: &FFI_Session,
 ) -> RHashMap<RString, FFI_AggregateUDF> {
-    let task_ctx_provider = &session.task_ctx_provider;
-    let physical_codec = &session.physical_codec;
     let session = session.inner();
     session
         .aggregate_functions()
         .iter()
         .map(|(name, udaf)| {
-            (
-                name.clone().into(),
-                FFI_AggregateUDF::new(
-                    Arc::clone(udaf),
-                    task_ctx_provider.clone(),
-                    Some(physical_codec.clone()),
-                ),
-            )
+            (name.clone().into(), FFI_AggregateUDF::new(Arc::clone(udaf)))
         })
         .collect()
 }
