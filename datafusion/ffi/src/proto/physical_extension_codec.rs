@@ -225,19 +225,17 @@ unsafe extern "C" fn try_decode_udwf_fn_wrapper(
     name: RStr,
     buf: RSlice<u8>,
 ) -> RResult<FFI_WindowUDF, RString> {
-    let task_ctx_provider = codec.task_ctx_provider().clone();
     let codec = codec.inner();
     let udwf = rresult_return!(codec.try_decode_udwf(name.into(), buf.as_ref()));
-    let udwf = FFI_WindowUDF::new(udwf, task_ctx_provider);
+    let udwf = FFI_WindowUDF::new(udwf);
 
     RResult::ROk(udwf)
 }
 
 unsafe extern "C" fn try_encode_udwf_fn_wrapper(
     codec: &FFI_PhysicalExtensionCodec,
-    mut node: FFI_WindowUDF,
+    node: FFI_WindowUDF,
 ) -> RResult<RVec<u8>, RString> {
-    node.task_ctx_provider = codec.task_ctx_provider().clone();
     let codec = codec.inner();
     let udwf: Arc<dyn WindowUDFImpl> = rresult_return!((&node).try_into());
     let udwf = WindowUDF::new_from_shared_impl(udwf);
@@ -421,7 +419,7 @@ impl PhysicalExtensionCodec for ForeignPhysicalExtensionCodec {
 
     fn try_encode_udwf(&self, node: &WindowUDF, buf: &mut Vec<u8>) -> Result<()> {
         let node = Arc::new(node.clone());
-        let node = FFI_WindowUDF::new(node, FFI_TaskContextProvider::empty());
+        let node = FFI_WindowUDF::new(node);
         let bytes = df_result!(unsafe { (self.0.try_encode_udwf)(&self.0, node) })?;
 
         buf.extend(bytes);

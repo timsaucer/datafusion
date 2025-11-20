@@ -64,9 +64,7 @@ pub(crate) extern "C" fn create_ffi_stddev_func() -> FFI_AggregateUDF {
     FFI_AggregateUDF::new(udaf)
 }
 
-pub(crate) extern "C" fn create_ffi_rank_func(
-    task_ctx_provider: FFI_TaskContextProvider,
-) -> FFI_WindowUDF {
+pub(crate) extern "C" fn create_ffi_rank_func() -> FFI_WindowUDF {
     let udwf: Arc<WindowUDF> = Arc::new(
         Rank::new(
             "rank_demo".to_string(),
@@ -75,5 +73,5 @@ pub(crate) extern "C" fn create_ffi_rank_func(
         .into(),
     );
 
-    FFI_WindowUDF::new(udwf, task_ctx_provider)
+    FFI_WindowUDF::new(udwf)
 }

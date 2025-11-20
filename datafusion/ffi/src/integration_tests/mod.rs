@@ -84,7 +84,7 @@ pub struct ForeignLibraryModule {
     /// Create  grouping UDAF using stddev
     pub create_stddev_udaf: extern "C" fn() -> FFI_AggregateUDF,
 
-    pub create_rank_udwf: extern "C" fn(FFI_TaskContextProvider) -> FFI_WindowUDF,
+    pub create_rank_udwf: extern "C" fn() -> FFI_WindowUDF,
 
     pub version: extern "C" fn() -> u64,
 }
