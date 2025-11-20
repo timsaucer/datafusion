@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+pub(crate) mod partitioning;
 pub(crate) mod sort;
 
 use std::any::Any;
@@ -135,6 +136,10 @@ pub struct FFI_PhysicalExpr {
     /// Internal data. This is only to be accessed by the provider of the plan.
     /// A [`ForeignExecutionPlan`] should never attempt to access this data.
     pub private_data: *mut c_void,
+
+    /// Utility to identify when FFI objects are accessed locally through
+    /// the foreign interface.
+    pub library_marker_id: extern "C" fn() -> u64,
 }
 
 unsafe impl Send for FFI_PhysicalExpr {}
@@ -231,11 +236,7 @@ unsafe extern "C" fn new_with_children_fn_wrapper(
     children: &RVec<FFI_PhysicalExpr>,
 ) -> FFIResult<FFI_PhysicalExpr> {
     let expr = Arc::clone(expr.inner());
-    let children = children
-        .iter()
-        .map(|e| ForeignPhysicalExpr::from(e.clone()))
-        .map(|e| Arc::new(e) as Arc<dyn PhysicalExpr>)
-        .collect::<Vec<_>>();
+    let children = children.iter().map(Into::into).collect::<Vec<_>>();
     rresult!(expr.with_new_children(children).map(FFI_PhysicalExpr::from))
 }
 
@@ -405,6 +406,7 @@ unsafe extern "C" fn clone_fn_wrapper(expr: &FFI_PhysicalExpr) -> FFI_PhysicalEx
         release: release_fn_wrapper,
         version: super::version,
         private_data,
+        library_marker_id: crate::get_library_marker_id,
     }
 }
 
@@ -442,6 +444,7 @@ impl From<Arc<dyn PhysicalExpr>> for FFI_PhysicalExpr {
             release: release_fn_wrapper,
             version: super::version,
             private_data: Box::into_raw(private_data) as *mut c_void,
+            library_marker_id: crate::get_library_marker_id,
         }
     }
 }
@@ -459,18 +462,23 @@ pub struct ForeignPhysicalExpr {
 unsafe impl Send for ForeignPhysicalExpr {}
 unsafe impl Sync for ForeignPhysicalExpr {}
 
-impl From<FFI_PhysicalExpr> for ForeignPhysicalExpr {
-    fn from(expr: FFI_PhysicalExpr) -> Self {
-        let children = unsafe {
-            (expr.children)(&expr)
-                .into_iter()
-                .map(|child| {
-                    Arc::new(ForeignPhysicalExpr::from(child)) as Arc<dyn PhysicalExpr>
-                })
-                .collect()
-        };
+impl From<&FFI_PhysicalExpr> for Arc<dyn PhysicalExpr> {
+    fn from(expr: &FFI_PhysicalExpr) -> Self {
+        if (expr.library_marker_id)() == crate::get_library_marker_id() {
+            Arc::clone(expr.inner())
+        } else {
+            let children = unsafe {
+                (expr.children)(expr)
+                    .into_iter()
+                    .map(|expr| <Arc<dyn PhysicalExpr>>::from(&expr))
+                    .collect()
+            };
 
-        Self { expr, children }
+            Arc::new(ForeignPhysicalExpr {
+                expr: expr.clone(),
+                children,
+            })
+        }
     }
 }
 
@@ -544,7 +552,7 @@ impl PhysicalExpr for ForeignPhysicalExpr {
         unsafe {
             let children = children.into_iter().map(FFI_PhysicalExpr::from).collect();
             df_result!((self.expr.new_with_children)(&self.expr, &children)
-                .map(|expr| Arc::new(ForeignPhysicalExpr::from(expr))))
+                .map(|expr| <Arc<dyn PhysicalExpr>>::from(&expr)))
         }
     }
 
@@ -651,9 +659,7 @@ impl PhysicalExpr for ForeignPhysicalExpr {
         unsafe {
             let result = df_result!((self.expr.snapshot)(&self.expr))?;
             Ok(result
-                .map(|ffi_expr| {
-                    Arc::new(ForeignPhysicalExpr::from(ffi_expr)) as Arc<dyn PhysicalExpr>
-                })
+                .map(|expr| <Arc<dyn PhysicalExpr>>::from(&expr))
                 .into())
         }
     }

@@ -92,7 +92,7 @@ impl FFI_ExecutionPlan {
 unsafe extern "C" fn properties_fn_wrapper(
     plan: &FFI_ExecutionPlan,
 ) -> FFI_PlanProperties {
-    FFI_PlanProperties::new(plan.inner().properties(), plan.task_ctx_provider.clone())
+    FFI_PlanProperties::from(plan.inner().properties())
 }
 
 unsafe extern "C" fn children_fn_wrapper(
