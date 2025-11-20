@@ -53,7 +53,6 @@ use tokio::runtime::Handle;
 use crate::arrow_wrappers::WrappedSchema;
 use crate::execution::{FFI_TaskContext, FFI_TaskContextProvider};
 use crate::execution_plan::FFI_ExecutionPlan;
-use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
 use crate::session::config::FFI_SessionConfig;
 use crate::udaf::FFI_AggregateUDF;
 use crate::udf::FFI_ScalarUDF;
@@ -100,12 +99,6 @@ pub struct FFI_Session {
 
     pub task_ctx: unsafe extern "C" fn(&Self) -> FFI_TaskContext,
 
-    /// Provider for TaskContext to be used during protobuf serialization
-    /// and deserialization.
-    pub task_ctx_provider: FFI_TaskContextProvider,
-
-    pub physical_codec: FFI_PhysicalExtensionCodec,
-
     /// Used to create a clone on the provider of the registry. This should
     /// only need to be called by the receiver of the plan.
     pub clone: unsafe extern "C" fn(plan: &Self) -> Self,
@@ -137,10 +130,6 @@ impl FFI_Session {
     fn inner(&self) -> &(dyn Session + Send + Sync) {
         let private_data = self.private_data as *const SessionPrivateData;
         unsafe { (*private_data).session }
-    }
-
-    fn task_ctx(&self) -> Result<Arc<TaskContext>, DataFusionError> {
-        (&self.task_ctx_provider).try_into()
     }
 
     unsafe fn runtime(&self) -> &Option<Handle> {
@@ -186,12 +175,12 @@ unsafe extern "C" fn create_physical_expr_fn_wrapper(
     expr_serialized: RVec<u8>,
     schema: WrappedSchema,
 ) -> RResult<RVec<u8>, RString> {
-    let task_ctx = rresult_return!(session.task_ctx());
     let session = session.inner();
 
     let codec = DefaultLogicalExtensionCodec {};
     let logical_expr = LogicalExprNode::decode(expr_serialized.as_slice()).unwrap();
-    let logical_expr = parse_expr(&logical_expr, task_ctx.as_ref(), &codec).unwrap();
+    let logical_expr =
+        parse_expr(&logical_expr, session.task_ctx().as_ref(), &codec).unwrap();
     let schema: SchemaRef = schema.into();
     let schema: DFSchema = rresult_return!(schema.try_into());
 
@@ -265,11 +254,11 @@ unsafe extern "C" fn default_table_options_fn_wrapper(
 }
 
 unsafe extern "C" fn task_ctx_fn_wrapper(session: &FFI_Session) -> FFI_TaskContext {
-    let task_ctx_provider = session.task_ctx_provider.clone();
+    // TODO(tsaucer) remove task ctx provider and codec
     FFI_TaskContext::new(
         session.inner().task_ctx(),
-        task_ctx_provider,
-        Some(session.physical_codec.clone()),
+        FFI_TaskContextProvider::empty(),
+        None,
     )
 }
 
@@ -297,8 +286,6 @@ unsafe extern "C" fn clone_fn_wrapper(provider: &FFI_Session) -> FFI_Session {
         table_options: table_options_fn_wrapper,
         default_table_options: default_table_options_fn_wrapper,
         task_ctx: task_ctx_fn_wrapper,
-        task_ctx_provider: provider.task_ctx_provider.clone(),
-        physical_codec: provider.physical_codec.clone(),
 
         clone: clone_fn_wrapper,
         release: release_fn_wrapper,
@@ -316,13 +303,7 @@ impl Drop for FFI_Session {
 
 impl FFI_Session {
     /// Creates a new [`FFI_Session`].
-    pub fn new(
-        session: &(dyn Session + Send + Sync),
-        task_ctx_provider: FFI_TaskContextProvider,
-        runtime: Option<Handle>,
-        physical_codec: Option<FFI_PhysicalExtensionCodec>,
-    ) -> Self {
-        let physical_codec = physical_codec.unwrap_or_default();
+    pub fn new(session: &(dyn Session + Send + Sync), runtime: Option<Handle>) -> Self {
         let private_data = Box::new(SessionPrivateData { session, runtime });
 
         Self {
@@ -336,8 +317,6 @@ impl FFI_Session {
             table_options: table_options_fn_wrapper,
             default_table_options: default_table_options_fn_wrapper,
             task_ctx: task_ctx_fn_wrapper,
-            task_ctx_provider,
-            physical_codec,
 
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
@@ -577,12 +556,9 @@ mod tests {
     #[tokio::test]
     async fn test_ffi_session() -> Result<(), DataFusionError> {
         let ctx = Arc::new(SessionContext::new());
-        let task_ctx_provider =
-            Arc::clone(&ctx) as Arc<dyn datafusion_execution::TaskContextProvider>;
-        let task_ctx_provider = FFI_TaskContextProvider::new(&task_ctx_provider);
         let state = ctx.state();
 
-        let local_session = FFI_Session::new(&state, task_ctx_provider, None, None);
+        let local_session = FFI_Session::new(&state, None);
         let foreign_session = ForeignSession::try_from(&local_session)?;
 
         let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
