@@ -26,13 +26,15 @@ use datafusion_execution::TaskContext;
 use datafusion_expr::Expr;
 use datafusion_proto::logical_plan::from_proto::parse_exprs;
 use datafusion_proto::logical_plan::to_proto::serialize_exprs;
-use datafusion_proto::logical_plan::DefaultLogicalExtensionCodec;
+use datafusion_proto::logical_plan::{
+    DefaultLogicalExtensionCodec, LogicalExtensionCodec,
+};
 use datafusion_proto::protobuf::LogicalExprList;
 use prost::Message;
 use tokio::runtime::Handle;
 
 use crate::execution::FFI_TaskContextProvider;
-use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
+use crate::proto::logical_extension_codec::FFI_LogicalExtensionCodec;
 use crate::table_provider::FFI_TableProvider;
 use crate::{df_result, rresult_return};
 
@@ -52,7 +54,7 @@ pub struct FFI_TableFunction {
     /// and deserialization.
     pub task_ctx_provider: FFI_TaskContextProvider,
 
-    pub physical_codec: FFI_PhysicalExtensionCodec,
+    pub logical_codec: FFI_LogicalExtensionCodec,
 
     /// Used to create a clone on the provider of the udtf. This should
     /// only need to be called by the receiver of the udtf.
@@ -111,7 +113,7 @@ unsafe extern "C" fn call_fn_wrapper(
         false,
         runtime,
         udtf.task_ctx_provider.clone(),
-        Some(udtf.physical_codec.clone()),
+        Some((&udtf.logical_codec).into()),
     ))
 }
 
@@ -128,7 +130,7 @@ unsafe extern "C" fn clone_fn_wrapper(udtf: &FFI_TableFunction) -> FFI_TableFunc
         Arc::clone(udtf_inner),
         runtime,
         udtf.task_ctx_provider.clone(),
-        Some(udtf.physical_codec.clone()),
+        Some((&udtf.logical_codec).into()),
     )
 }
 
@@ -143,16 +145,19 @@ impl FFI_TableFunction {
         udtf: Arc<dyn TableFunctionImpl>,
         runtime: Option<Handle>,
         task_ctx_provider: impl Into<FFI_TaskContextProvider>,
-        physical_codec: Option<FFI_PhysicalExtensionCodec>,
+        logical_codec: Option<Arc<dyn LogicalExtensionCodec>>,
     ) -> Self {
-        let physical_codec = physical_codec.unwrap_or_default();
+        let logical_codec =
+            logical_codec.unwrap_or_else(|| Arc::new(DefaultLogicalExtensionCodec {}));
+        let logical_codec =
+            FFI_LogicalExtensionCodec::new(logical_codec, runtime.clone(), None);
         let task_ctx_provider = task_ctx_provider.into();
         let private_data = Box::new(TableFunctionPrivateData { udtf, runtime });
 
         Self {
             call: call_fn_wrapper,
             task_ctx_provider,
-            physical_codec,
+            logical_codec,
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
             private_data: Box::into_raw(private_data) as *mut c_void,

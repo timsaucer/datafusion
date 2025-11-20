@@ -25,10 +25,13 @@ use async_ffi::{FfiFuture, FutureExt};
 use async_trait::async_trait;
 use datafusion_catalog::{SchemaProvider, TableProvider};
 use datafusion_common::error::{DataFusionError, Result};
+use datafusion_proto::logical_plan::{
+    DefaultLogicalExtensionCodec, LogicalExtensionCodec,
+};
 use tokio::runtime::Handle;
 
 use crate::execution::FFI_TaskContextProvider;
-use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
+use crate::proto::logical_extension_codec::FFI_LogicalExtensionCodec;
 use crate::table_provider::{FFI_TableProvider, ForeignTableProvider};
 use crate::{df_result, rresult_return};
 
@@ -67,7 +70,7 @@ pub struct FFI_SchemaProvider {
     /// and deserialization.
     pub task_ctx_provider: FFI_TaskContextProvider,
 
-    pub physical_codec: FFI_PhysicalExtensionCodec,
+    pub logical_codec: FFI_LogicalExtensionCodec,
 
     /// Used to create a clone on the provider of the execution plan. This should
     /// only need to be called by the receiver of the plan.
@@ -122,19 +125,19 @@ unsafe extern "C" fn table_fn_wrapper(
     name: RString,
 ) -> FfiFuture<RResult<ROption<FFI_TableProvider>, RString>> {
     let runtime = provider.runtime();
-    let physical_codec = provider.physical_codec.clone();
+    let logical_codec = provider.logical_codec.clone();
     let task_ctx_provider = provider.task_ctx_provider.clone();
     let provider = Arc::clone(provider.inner());
 
     async move {
         let table = rresult_return!(provider.table(name.as_str()).await)
             .map(|t| {
-                FFI_TableProvider::new(
+                FFI_TableProvider::new_with_ffi_codec(
                     t,
                     true,
                     runtime,
                     task_ctx_provider,
-                    Some(physical_codec),
+                    logical_codec,
                 )
             })
             .into();
@@ -151,19 +154,19 @@ unsafe extern "C" fn register_table_fn_wrapper(
 ) -> RResult<ROption<FFI_TableProvider>, RString> {
     let runtime = provider.runtime();
     let task_ctx_provider = provider.task_ctx_provider.clone();
-    let physical_codec = provider.physical_codec.clone();
+    let logical_codec = provider.logical_codec.clone();
     let provider = provider.inner();
 
     let table = Arc::new(ForeignTableProvider(table));
 
     let returned_table = rresult_return!(provider.register_table(name.into(), table))
         .map(|t| {
-            FFI_TableProvider::new(
+            FFI_TableProvider::new_with_ffi_codec(
                 t,
                 true,
                 runtime,
                 task_ctx_provider,
-                Some(physical_codec),
+                logical_codec,
             )
         });
 
@@ -176,17 +179,17 @@ unsafe extern "C" fn deregister_table_fn_wrapper(
 ) -> RResult<ROption<FFI_TableProvider>, RString> {
     let runtime = provider.runtime();
     let task_ctx_provider = provider.task_ctx_provider.clone();
-    let physical_codec = provider.physical_codec.clone();
+    let logical_codec = provider.logical_codec.clone();
     let provider = provider.inner();
 
     let returned_table =
         rresult_return!(provider.deregister_table(name.as_str())).map(|t| {
-            FFI_TableProvider::new(
+            FFI_TableProvider::new_with_ffi_codec(
                 t,
                 true,
                 runtime,
                 task_ctx_provider,
-                Some(physical_codec),
+                logical_codec,
             )
         });
 
@@ -224,7 +227,7 @@ unsafe extern "C" fn clone_fn_wrapper(
         deregister_table: deregister_table_fn_wrapper,
         table_exist: table_exist_fn_wrapper,
         task_ctx_provider: provider.task_ctx_provider.clone(),
-        physical_codec: provider.physical_codec.clone(),
+        logical_codec: provider.logical_codec.clone(),
         clone: clone_fn_wrapper,
         release: release_fn_wrapper,
         version: super::version,
@@ -245,9 +248,21 @@ impl FFI_SchemaProvider {
         provider: Arc<dyn SchemaProvider + Send>,
         runtime: Option<Handle>,
         task_ctx_provider: impl Into<FFI_TaskContextProvider>,
-        physical_codec: Option<FFI_PhysicalExtensionCodec>,
+        logical_codec: Option<Arc<dyn LogicalExtensionCodec>>,
     ) -> Self {
-        let physical_codec = physical_codec.unwrap_or_default();
+        let logical_codec =
+            logical_codec.unwrap_or_else(|| Arc::new(DefaultLogicalExtensionCodec {}));
+        let logical_codec =
+            FFI_LogicalExtensionCodec::new(logical_codec, runtime.clone(), None);
+        Self::new_with_ffi_codec(provider, runtime, task_ctx_provider, logical_codec)
+    }
+
+    pub fn new_with_ffi_codec(
+        provider: Arc<dyn SchemaProvider + Send>,
+        runtime: Option<Handle>,
+        task_ctx_provider: impl Into<FFI_TaskContextProvider>,
+        logical_codec: FFI_LogicalExtensionCodec,
+    ) -> Self {
         let task_ctx_provider = task_ctx_provider.into();
         let owner_name = provider.owner_name().map(|s| s.into()).into();
         let private_data = Box::new(ProviderPrivateData { provider, runtime });
@@ -260,7 +275,7 @@ impl FFI_SchemaProvider {
             deregister_table: deregister_table_fn_wrapper,
             table_exist: table_exist_fn_wrapper,
             task_ctx_provider,
-            physical_codec,
+            logical_codec,
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
             version: super::version,
@@ -339,12 +354,12 @@ impl SchemaProvider for ForeignSchemaProvider {
         unsafe {
             let ffi_table = match table.as_any().downcast_ref::<ForeignTableProvider>() {
                 Some(t) => t.0.clone(),
-                None => FFI_TableProvider::new(
+                None => FFI_TableProvider::new_with_ffi_codec(
                     table,
                     true,
                     None,
                     self.0.task_ctx_provider.clone(),
-                    Some(self.0.physical_codec.clone()),
+                    self.0.logical_codec.clone(),
                 ),
             };
 

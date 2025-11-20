@@ -150,7 +150,7 @@ unsafe extern "C" fn try_decode_table_provider_fn_wrapper(
     schema: WrappedSchema,
 ) -> RResult<FFI_TableProvider, RString> {
     let task_ctx_provider = codec.task_ctx_provider().clone();
-    let physical_codec = codec.physical_codec.clone();
+    let logical_codec = codec.clone();
     let ctx = rresult_return!(codec.task_ctx());
     let runtime = codec.runtime().clone();
     let codec = codec.inner();
@@ -164,12 +164,12 @@ unsafe extern "C" fn try_decode_table_provider_fn_wrapper(
         ctx.as_ref()
     ));
 
-    RResult::ROk(FFI_TableProvider::new(
+    RResult::ROk(FFI_TableProvider::new_with_ffi_codec(
         table_provider,
         true,
         runtime,
         task_ctx_provider,
-        Some(physical_codec),
+        logical_codec,
     ))
 }
 
@@ -410,12 +410,12 @@ impl LogicalExtensionCodec for ForeignLogicalExtensionCodec {
     ) -> Result<()> {
         let table_ref = table_ref.to_string();
         let task_ctx_provider = FFI_TaskContextProvider::empty();
-        let node = FFI_TableProvider::new(
+        let node = FFI_TableProvider::new_with_ffi_codec(
             node,
             true,
             None,
             task_ctx_provider,
-            Some(self.0.physical_codec.clone()),
+            self.0.clone(),
         );
 
         let bytes = df_result!(unsafe {

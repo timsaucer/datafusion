@@ -32,7 +32,9 @@ use datafusion_expr::{Expr, TableProviderFilterPushDown, TableType};
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_proto::logical_plan::from_proto::parse_exprs;
 use datafusion_proto::logical_plan::to_proto::serialize_exprs;
-use datafusion_proto::logical_plan::DefaultLogicalExtensionCodec;
+use datafusion_proto::logical_plan::{
+    DefaultLogicalExtensionCodec, LogicalExtensionCodec,
+};
 use datafusion_proto::protobuf::LogicalExprList;
 use prost::Message;
 use tokio::runtime::Handle;
@@ -41,7 +43,7 @@ use super::execution_plan::FFI_ExecutionPlan;
 use super::insert_op::FFI_InsertOp;
 use crate::arrow_wrappers::WrappedSchema;
 use crate::execution::FFI_TaskContextProvider;
-use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
+use crate::proto::logical_extension_codec::FFI_LogicalExtensionCodec;
 use crate::session::{FFI_Session, ForeignSession};
 use crate::table_source::{FFI_TableProviderFilterPushDown, FFI_TableType};
 use crate::{df_result, rresult_return};
@@ -137,7 +139,7 @@ pub struct FFI_TableProvider {
     /// and deserialization.
     pub task_ctx_provider: FFI_TaskContextProvider,
 
-    pub physical_codec: FFI_PhysicalExtensionCodec,
+    pub logical_codec: FFI_LogicalExtensionCodec,
 
     /// Used to create a clone on the provider of the execution plan. This should
     /// only need to be called by the receiver of the plan.
@@ -322,7 +324,7 @@ unsafe extern "C" fn clone_fn_wrapper(provider: &FFI_TableProvider) -> FFI_Table
         supports_filters_pushdown: provider.supports_filters_pushdown,
         insert_into: provider.insert_into,
         task_ctx_provider: provider.task_ctx_provider.clone(),
-        physical_codec: provider.physical_codec.clone(),
+        logical_codec: provider.logical_codec.clone(),
         clone: clone_fn_wrapper,
         release: release_fn_wrapper,
         version: super::version,
@@ -344,9 +346,28 @@ impl FFI_TableProvider {
         can_support_pushdown_filters: bool,
         runtime: Option<Handle>,
         task_ctx_provider: impl Into<FFI_TaskContextProvider>,
-        physical_codec: Option<FFI_PhysicalExtensionCodec>,
+        logical_codec: Option<Arc<dyn LogicalExtensionCodec>>,
     ) -> Self {
-        let physical_codec = physical_codec.unwrap_or_default();
+        let logical_codec =
+            logical_codec.unwrap_or_else(|| Arc::new(DefaultLogicalExtensionCodec {}));
+        let logical_codec =
+            FFI_LogicalExtensionCodec::new(logical_codec, runtime.clone(), None);
+        Self::new_with_ffi_codec(
+            provider,
+            can_support_pushdown_filters,
+            runtime,
+            task_ctx_provider,
+            logical_codec,
+        )
+    }
+
+    pub fn new_with_ffi_codec(
+        provider: Arc<dyn TableProvider + Send>,
+        can_support_pushdown_filters: bool,
+        runtime: Option<Handle>,
+        task_ctx_provider: impl Into<FFI_TaskContextProvider>,
+        logical_codec: FFI_LogicalExtensionCodec,
+    ) -> Self {
         let task_ctx_provider = task_ctx_provider.into();
         let private_data = Box::new(ProviderPrivateData { provider, runtime });
 
@@ -360,7 +381,7 @@ impl FFI_TableProvider {
             },
             insert_into: insert_into_fn_wrapper,
             task_ctx_provider,
-            physical_codec,
+            logical_codec,
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
             version: super::version,
@@ -418,7 +439,8 @@ impl TableProvider for ForeignTableProvider {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let session = FFI_Session::new(session, None);
+        let session =
+            FFI_Session::new_with_ffi_codec(session, None, self.0.logical_codec.clone());
 
         let projections: Option<RVec<usize>> =
             projection.map(|p| p.iter().map(|v| v.to_owned()).collect());
@@ -481,7 +503,8 @@ impl TableProvider for ForeignTableProvider {
         input: Arc<dyn ExecutionPlan>,
         insert_op: InsertOp,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let session = FFI_Session::new(session, None);
+        let session =
+            FFI_Session::new_with_ffi_codec(session, None, self.0.logical_codec.clone());
 
         let rc = Handle::try_current().ok();
         let input = FFI_ExecutionPlan::new(input, rc);

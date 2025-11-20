@@ -23,10 +23,13 @@ use abi_stable::std_types::{ROption, RResult, RString, RVec};
 use abi_stable::StableAbi;
 use datafusion_catalog::{CatalogProvider, SchemaProvider};
 use datafusion_common::error::Result;
+use datafusion_proto::logical_plan::{
+    DefaultLogicalExtensionCodec, LogicalExtensionCodec,
+};
 use tokio::runtime::Handle;
 
 use crate::execution::FFI_TaskContextProvider;
-use crate::proto::physical_extension_codec::FFI_PhysicalExtensionCodec;
+use crate::proto::logical_extension_codec::FFI_LogicalExtensionCodec;
 use crate::schema_provider::{FFI_SchemaProvider, ForeignSchemaProvider};
 use crate::{df_result, rresult_return};
 
@@ -60,7 +63,7 @@ pub struct FFI_CatalogProvider {
     /// and deserialization.
     pub task_ctx_provider: FFI_TaskContextProvider,
 
-    pub physical_codec: FFI_PhysicalExtensionCodec,
+    pub logical_codec: FFI_LogicalExtensionCodec,
 
     /// Used to create a clone on the provider of the execution plan. This should
     /// only need to be called by the receiver of the plan.
@@ -115,11 +118,11 @@ unsafe extern "C" fn schema_fn_wrapper(
     let maybe_schema = provider.inner().schema(name.as_str());
     maybe_schema
         .map(|schema| {
-            FFI_SchemaProvider::new(
+            FFI_SchemaProvider::new_with_ffi_codec(
                 schema,
                 provider.runtime(),
                 provider.task_ctx_provider.clone(),
-                Some(provider.physical_codec.clone()),
+                provider.logical_codec.clone(),
             )
         })
         .into()
@@ -137,11 +140,11 @@ unsafe extern "C" fn register_schema_fn_wrapper(
     let returned_schema =
         rresult_return!(inner_provider.register_schema(name.as_str(), schema))
             .map(|schema| {
-                FFI_SchemaProvider::new(
+                FFI_SchemaProvider::new_with_ffi_codec(
                     schema,
                     runtime,
                     provider.task_ctx_provider.clone(),
-                    Some(provider.physical_codec.clone()),
+                    provider.logical_codec.clone(),
                 )
             })
             .into();
@@ -163,11 +166,11 @@ unsafe extern "C" fn deregister_schema_fn_wrapper(
     RResult::ROk(
         maybe_schema
             .map(|schema| {
-                FFI_SchemaProvider::new(
+                FFI_SchemaProvider::new_with_ffi_codec(
                     schema,
                     runtime,
                     provider.task_ctx_provider.clone(),
-                    Some(provider.physical_codec.clone()),
+                    provider.logical_codec.clone(),
                 )
             })
             .into(),
@@ -196,7 +199,7 @@ unsafe extern "C" fn clone_fn_wrapper(
         register_schema: register_schema_fn_wrapper,
         deregister_schema: deregister_schema_fn_wrapper,
         task_ctx_provider: provider.task_ctx_provider.clone(),
-        physical_codec: provider.physical_codec.clone(),
+        logical_codec: provider.logical_codec.clone(),
         clone: clone_fn_wrapper,
         release: release_fn_wrapper,
         version: super::version,
@@ -217,9 +220,21 @@ impl FFI_CatalogProvider {
         provider: Arc<dyn CatalogProvider + Send>,
         runtime: Option<Handle>,
         task_ctx_provider: impl Into<FFI_TaskContextProvider>,
-        physical_codec: Option<FFI_PhysicalExtensionCodec>,
+        logical_codec: Option<Arc<dyn LogicalExtensionCodec>>,
     ) -> Self {
-        let physical_codec = physical_codec.unwrap_or_default();
+        let logical_codec =
+            logical_codec.unwrap_or_else(|| Arc::new(DefaultLogicalExtensionCodec {}));
+        let logical_codec =
+            FFI_LogicalExtensionCodec::new(logical_codec, runtime.clone(), None);
+        Self::new_with_ffi_codec(provider, runtime, task_ctx_provider, logical_codec)
+    }
+
+    pub fn new_with_ffi_codec(
+        provider: Arc<dyn CatalogProvider + Send>,
+        runtime: Option<Handle>,
+        task_ctx_provider: impl Into<FFI_TaskContextProvider>,
+        logical_codec: FFI_LogicalExtensionCodec,
+    ) -> Self {
         let task_ctx_provider = task_ctx_provider.into();
         let private_data = Box::new(ProviderPrivateData { provider, runtime });
 
@@ -229,7 +244,7 @@ impl FFI_CatalogProvider {
             register_schema: register_schema_fn_wrapper,
             deregister_schema: deregister_schema_fn_wrapper,
             task_ctx_provider,
-            physical_codec,
+            logical_codec,
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
             version: super::version,
@@ -299,11 +314,11 @@ impl CatalogProvider for ForeignCatalogProvider {
         unsafe {
             let schema = match schema.as_any().downcast_ref::<ForeignSchemaProvider>() {
                 Some(s) => &s.0,
-                None => &FFI_SchemaProvider::new(
+                None => &FFI_SchemaProvider::new_with_ffi_codec(
                     schema,
                     None,
                     self.0.task_ctx_provider.clone(),
-                    Some(self.0.physical_codec.clone()),
+                    self.0.logical_codec.clone(),
                 ),
             };
             let returned_schema: Option<FFI_SchemaProvider> =

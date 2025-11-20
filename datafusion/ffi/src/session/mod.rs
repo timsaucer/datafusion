@@ -41,7 +41,9 @@ use datafusion_physical_plan::ExecutionPlan;
 use datafusion_proto::bytes::{logical_plan_from_bytes, logical_plan_to_bytes};
 use datafusion_proto::logical_plan::from_proto::parse_expr;
 use datafusion_proto::logical_plan::to_proto::serialize_expr;
-use datafusion_proto::logical_plan::DefaultLogicalExtensionCodec;
+use datafusion_proto::logical_plan::{
+    DefaultLogicalExtensionCodec, LogicalExtensionCodec,
+};
 use datafusion_proto::protobuf::LogicalExprNode;
 use datafusion_session::Session;
 use prost::Message;
@@ -51,6 +53,7 @@ use crate::arrow_wrappers::WrappedSchema;
 use crate::execution::{FFI_TaskContext, FFI_TaskContextProvider};
 use crate::execution_plan::FFI_ExecutionPlan;
 use crate::physical_expr::FFI_PhysicalExpr;
+use crate::proto::logical_extension_codec::FFI_LogicalExtensionCodec;
 use crate::session::config::FFI_SessionConfig;
 use crate::udaf::FFI_AggregateUDF;
 use crate::udf::FFI_ScalarUDF;
@@ -97,6 +100,8 @@ pub struct FFI_Session {
     pub default_table_options: unsafe extern "C" fn(&Self) -> RHashMap<RString, RString>,
 
     pub task_ctx: unsafe extern "C" fn(&Self) -> FFI_TaskContext,
+
+    pub logical_codec: FFI_LogicalExtensionCodec,
 
     /// Used to create a clone on the provider of the registry. This should
     /// only need to be called by the receiver of the plan.
@@ -174,12 +179,12 @@ unsafe extern "C" fn create_physical_expr_fn_wrapper(
     expr_serialized: RVec<u8>,
     schema: WrappedSchema,
 ) -> RResult<FFI_PhysicalExpr, RString> {
+    let codec: Arc<dyn LogicalExtensionCodec> = (&session.logical_codec).into();
     let session = session.inner();
 
-    let codec = DefaultLogicalExtensionCodec {};
     let logical_expr = LogicalExprNode::decode(expr_serialized.as_slice()).unwrap();
     let logical_expr =
-        parse_expr(&logical_expr, session.task_ctx().as_ref(), &codec).unwrap();
+        parse_expr(&logical_expr, session.task_ctx().as_ref(), codec.as_ref()).unwrap();
     let schema: SchemaRef = schema.into();
     let schema: DFSchema = rresult_return!(schema.try_into());
 
@@ -282,6 +287,7 @@ unsafe extern "C" fn clone_fn_wrapper(provider: &FFI_Session) -> FFI_Session {
         table_options: table_options_fn_wrapper,
         default_table_options: default_table_options_fn_wrapper,
         task_ctx: task_ctx_fn_wrapper,
+        logical_codec: provider.logical_codec.clone(),
 
         clone: clone_fn_wrapper,
         release: release_fn_wrapper,
@@ -299,7 +305,23 @@ impl Drop for FFI_Session {
 
 impl FFI_Session {
     /// Creates a new [`FFI_Session`].
-    pub fn new(session: &(dyn Session + Send + Sync), runtime: Option<Handle>) -> Self {
+    pub fn new(
+        session: &(dyn Session + Send + Sync),
+        runtime: Option<Handle>,
+        logical_codec: Option<Arc<dyn LogicalExtensionCodec>>,
+    ) -> Self {
+        let logical_codec =
+            logical_codec.unwrap_or_else(|| Arc::new(DefaultLogicalExtensionCodec {}));
+        let logical_codec =
+            FFI_LogicalExtensionCodec::new(logical_codec, runtime.clone(), None);
+        Self::new_with_ffi_codec(session, runtime, logical_codec)
+    }
+
+    pub fn new_with_ffi_codec(
+        session: &(dyn Session + Send + Sync),
+        runtime: Option<Handle>,
+        logical_codec: FFI_LogicalExtensionCodec,
+    ) -> Self {
         let private_data = Box::new(SessionPrivateData { session, runtime });
 
         Self {
@@ -313,6 +335,7 @@ impl FFI_Session {
             table_options: table_options_fn_wrapper,
             default_table_options: default_table_options_fn_wrapper,
             task_ctx: task_ctx_fn_wrapper,
+            logical_codec,
 
             clone: clone_fn_wrapper,
             release: release_fn_wrapper,
@@ -466,8 +489,9 @@ impl Session for ForeignSession {
         df_schema: &DFSchema,
     ) -> datafusion_common::Result<Arc<dyn PhysicalExpr>> {
         unsafe {
-            let codec = DefaultLogicalExtensionCodec {};
-            let logical_expr = serialize_expr(&expr, &codec)?.encode_to_vec();
+            let codec: Arc<dyn LogicalExtensionCodec> =
+                (&self.session.logical_codec).into();
+            let logical_expr = serialize_expr(&expr, codec.as_ref())?.encode_to_vec();
             let schema = WrappedSchema(FFI_ArrowSchema::try_from(df_schema.as_arrow())?);
 
             let physical_expr = df_result!((self.session.create_physical_expr)(
@@ -543,7 +567,7 @@ mod tests {
         let ctx = Arc::new(SessionContext::new());
         let state = ctx.state();
 
-        let local_session = FFI_Session::new(&state, None);
+        let local_session = FFI_Session::new(&state, None, None);
         let foreign_session = ForeignSession::try_from(&local_session)?;
 
         let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
