@@ -256,11 +256,7 @@ unsafe extern "C" fn default_table_options_fn_wrapper(
 
 unsafe extern "C" fn task_ctx_fn_wrapper(session: &FFI_Session) -> FFI_TaskContext {
     // TODO(tsaucer) remove task ctx provider and codec
-    FFI_TaskContext::new(
-        session.inner().task_ctx(),
-        FFI_TaskContextProvider::empty(),
-        None,
-    )
+    FFI_TaskContext::new(session.inner().task_ctx(), FFI_TaskContextProvider::empty())
 }
 
 unsafe extern "C" fn release_fn_wrapper(provider: &mut FFI_Session) {

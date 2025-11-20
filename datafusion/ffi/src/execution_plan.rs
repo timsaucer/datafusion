@@ -275,7 +275,7 @@ impl ExecutionPlan for ForeignExecutionPlan {
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let task_ctx_provider = FFI_TaskContextProvider::empty();
-        let context = FFI_TaskContext::new(context, task_ctx_provider, None);
+        let context = FFI_TaskContext::new(context, task_ctx_provider);
         unsafe {
             df_result!((self.plan.execute)(&self.plan, partition, context))
                 .map(|stream| Pin::new(Box::new(stream)) as SendableRecordBatchStream)
