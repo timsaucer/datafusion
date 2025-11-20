@@ -139,16 +139,10 @@ unsafe extern "C" fn try_decode_fn_wrapper(
     buf: RSlice<u8>,
     inputs: RVec<FFI_ExecutionPlan>,
 ) -> RResult<FFI_ExecutionPlan, RString> {
-    let task_ctx_provider = codec.task_ctx_provider();
     let task_ctx = rresult_return!(codec.task_ctx());
     let codec = codec.inner();
     let inputs = inputs
         .into_iter()
-        .map(|mut plan| {
-            // Overwrite empty provider
-            plan.task_ctx_provider = task_ctx_provider.clone();
-            plan
-        })
         .map(|plan| <Arc<dyn ExecutionPlan>>::try_from(&plan))
         .collect::<Result<Vec<_>>>();
     let inputs = rresult_return!(inputs);
@@ -156,19 +150,13 @@ unsafe extern "C" fn try_decode_fn_wrapper(
     let plan =
         rresult_return!(codec.try_decode(buf.as_ref(), &inputs, task_ctx.as_ref()));
 
-    RResult::ROk(FFI_ExecutionPlan::new(
-        plan,
-        task_ctx_provider.clone(),
-        None,
-    ))
+    RResult::ROk(FFI_ExecutionPlan::new(plan, None))
 }
 
 unsafe extern "C" fn try_encode_fn_wrapper(
     codec: &FFI_PhysicalExtensionCodec,
-    mut node: FFI_ExecutionPlan,
+    node: FFI_ExecutionPlan,
 ) -> RResult<RVec<u8>, RString> {
-    // Overwrite empty provider
-    node.task_ctx_provider = codec.task_ctx_provider().clone();
     let codec = codec.inner();
 
     let plan: Arc<dyn ExecutionPlan> = rresult_return!((&node).try_into());
@@ -369,13 +357,7 @@ impl PhysicalExtensionCodec for ForeignPhysicalExtensionCodec {
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let inputs = inputs
             .iter()
-            .map(|plan| {
-                FFI_ExecutionPlan::new(
-                    Arc::clone(plan),
-                    FFI_TaskContextProvider::empty(),
-                    None,
-                )
-            })
+            .map(|plan| FFI_ExecutionPlan::new(Arc::clone(plan), None))
             .collect();
 
         let plan =
@@ -386,7 +368,7 @@ impl PhysicalExtensionCodec for ForeignPhysicalExtensionCodec {
     }
 
     fn try_encode(&self, node: Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<()> {
-        let plan = FFI_ExecutionPlan::new(node, FFI_TaskContextProvider::empty(), None);
+        let plan = FFI_ExecutionPlan::new(node, None);
         let bytes = df_result!(unsafe { (self.0.try_encode)(&self.0, plan) })?;
 
         buf.extend(bytes);

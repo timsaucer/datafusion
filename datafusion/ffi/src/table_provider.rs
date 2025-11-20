@@ -233,8 +233,6 @@ unsafe extern "C" fn scan_fn_wrapper(
     filters_serialized: RVec<u8>,
     limit: ROption<usize>,
 ) -> FfiFuture<RResult<FFI_ExecutionPlan, RString>> {
-    let task_ctx_provider = provider.task_ctx_provider.clone();
-
     let task_ctx: Result<Arc<TaskContext>, DataFusionError> =
         (&provider.task_ctx_provider).try_into();
     let runtime = provider.runtime().clone();
@@ -269,11 +267,7 @@ unsafe extern "C" fn scan_fn_wrapper(
                 .await
         );
 
-        RResult::ROk(FFI_ExecutionPlan::new(
-            plan,
-            task_ctx_provider,
-            runtime.clone(),
-        ))
+        RResult::ROk(FFI_ExecutionPlan::new(plan, runtime.clone()))
     }
     .into_ffi()
 }
@@ -284,7 +278,6 @@ unsafe extern "C" fn insert_into_fn_wrapper(
     input: &FFI_ExecutionPlan,
     insert_op: FFI_InsertOp,
 ) -> FfiFuture<RResult<FFI_ExecutionPlan, RString>> {
-    let task_ctx_provider = provider.task_ctx_provider.clone();
     let runtime = provider.runtime().clone();
     let internal_provider = Arc::clone(provider.inner());
     let input = input.clone();
@@ -303,11 +296,7 @@ unsafe extern "C" fn insert_into_fn_wrapper(
                 .await
         );
 
-        RResult::ROk(FFI_ExecutionPlan::new(
-            plan,
-            task_ctx_provider,
-            runtime.clone(),
-        ))
+        RResult::ROk(FFI_ExecutionPlan::new(plan, runtime.clone()))
     }
     .into_ffi()
 }
@@ -505,7 +494,7 @@ impl TableProvider for ForeignTableProvider {
         );
 
         let rc = Handle::try_current().ok();
-        let input = FFI_ExecutionPlan::new(input, self.0.task_ctx_provider.clone(), rc);
+        let input = FFI_ExecutionPlan::new(input, rc);
         let insert_op: FFI_InsertOp = insert_op.into();
 
         let plan = unsafe {

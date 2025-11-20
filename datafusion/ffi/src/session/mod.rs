@@ -163,7 +163,6 @@ unsafe extern "C" fn create_physical_plan_fn_wrapper(
     session: &FFI_Session,
     logical_plan_serialized: RVec<u8>,
 ) -> FfiFuture<RResult<FFI_ExecutionPlan, RString>> {
-    let task_ctx_provider = session.task_ctx_provider.clone();
     let runtime = session.runtime().clone();
     let session = session.clone();
     async move {
@@ -177,11 +176,7 @@ unsafe extern "C" fn create_physical_plan_fn_wrapper(
 
         let physical_plan = session.create_physical_plan(&logical_plan).await;
 
-        rresult!(physical_plan.map(|plan| FFI_ExecutionPlan::new(
-            plan,
-            task_ctx_provider,
-            runtime
-        )))
+        rresult!(physical_plan.map(|plan| FFI_ExecutionPlan::new(plan, runtime)))
     }
     .into_ffi()
 }
