@@ -194,16 +194,15 @@ fn supports_filters_pushdown_internal(
     provider: &Arc<dyn TableProvider + Send>,
     filters_serialized: &[u8],
     task_ctx: &Arc<TaskContext>,
+    codec: &dyn LogicalExtensionCodec,
 ) -> Result<RVec<FFI_TableProviderFilterPushDown>> {
-    let codec = DefaultLogicalExtensionCodec {};
-
     let filters = match filters_serialized.is_empty() {
         true => vec![],
         false => {
             let proto_filters = LogicalExprList::decode(filters_serialized)
                 .map_err(|e| DataFusionError::Plan(e.to_string()))?;
 
-            parse_exprs(proto_filters.expr.iter(), task_ctx.as_ref(), &codec)?
+            parse_exprs(proto_filters.expr.iter(), task_ctx.as_ref(), codec)?
         }
     };
     let filters_borrowed: Vec<&Expr> = filters.iter().collect();
@@ -221,11 +220,17 @@ unsafe extern "C" fn supports_filters_pushdown_fn_wrapper(
     provider: &FFI_TableProvider,
     filters_serialized: RVec<u8>,
 ) -> RResult<RVec<FFI_TableProviderFilterPushDown>, RString> {
+    let logical_codec: Arc<dyn LogicalExtensionCodec> = (&provider.logical_codec).into();
     let task_ctx =
         rresult_return!(<Arc<TaskContext>>::try_from(&provider.task_ctx_provider));
-    supports_filters_pushdown_internal(provider.inner(), &filters_serialized, &task_ctx)
-        .map_err(|e| e.to_string().into())
-        .into()
+    supports_filters_pushdown_internal(
+        provider.inner(),
+        &filters_serialized,
+        &task_ctx,
+        logical_codec.as_ref(),
+    )
+    .map_err(|e| e.to_string().into())
+    .into()
 }
 
 unsafe extern "C" fn scan_fn_wrapper(
@@ -238,6 +243,7 @@ unsafe extern "C" fn scan_fn_wrapper(
     let task_ctx: Result<Arc<TaskContext>, DataFusionError> =
         (&provider.task_ctx_provider).try_into();
     let runtime = provider.runtime().clone();
+    let logical_codec: Arc<dyn LogicalExtensionCodec> = (&provider.logical_codec).into();
     let internal_provider = Arc::clone(provider.inner());
 
     async move {
@@ -248,15 +254,13 @@ unsafe extern "C" fn scan_fn_wrapper(
         let filters = match filters_serialized.is_empty() {
             true => vec![],
             false => {
-                let codec = DefaultLogicalExtensionCodec {};
-
                 let proto_filters =
                     rresult_return!(LogicalExprList::decode(filters_serialized.as_ref()));
 
                 rresult_return!(parse_exprs(
                     proto_filters.expr.iter(),
                     task_ctx.as_ref(),
-                    &codec
+                    logical_codec.as_ref(),
                 ))
             }
         };
@@ -445,9 +449,9 @@ impl TableProvider for ForeignTableProvider {
         let projections: Option<RVec<usize>> =
             projection.map(|p| p.iter().map(|v| v.to_owned()).collect());
 
-        let codec = DefaultLogicalExtensionCodec {};
+        let codec: Arc<dyn LogicalExtensionCodec> = (&self.0.logical_codec).into();
         let filter_list = LogicalExprList {
-            expr: serialize_exprs(filters, &codec)?,
+            expr: serialize_exprs(filters, codec.as_ref())?,
         };
         let filters_serialized = filter_list.encode_to_vec().into();
 
@@ -484,10 +488,13 @@ impl TableProvider for ForeignTableProvider {
                 }
             };
 
-            let codec = DefaultLogicalExtensionCodec {};
+            let codec: Arc<dyn LogicalExtensionCodec> = (&self.0.logical_codec).into();
 
             let expr_list = LogicalExprList {
-                expr: serialize_exprs(filters.iter().map(|f| f.to_owned()), &codec)?,
+                expr: serialize_exprs(
+                    filters.iter().map(|f| f.to_owned()),
+                    codec.as_ref(),
+                )?,
             };
             let serialized_filters = expr_list.encode_to_vec();
 
