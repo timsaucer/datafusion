@@ -330,10 +330,7 @@ impl WindowUDFImpl for ForeignWindowUDF {
         args: datafusion_expr::function::PartitionEvaluatorArgs,
     ) -> Result<Box<dyn PartitionEvaluator>> {
         let evaluator = unsafe {
-            let args = FFI_PartitionEvaluatorArgs::try_new(
-                args,
-                self.udf.task_ctx_provider.clone(),
-            )?;
+            let args = FFI_PartitionEvaluatorArgs::try_new(args)?;
             (self.udf.partition_evaluator)(&self.udf, args)
         };
 
