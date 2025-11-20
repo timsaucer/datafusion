@@ -100,12 +100,15 @@ unsafe extern "C" fn call_fn_wrapper(
     let udtf_inner = udtf.inner();
 
     let ctx: Arc<TaskContext> = rresult_return!((&udtf.task_ctx_provider).try_into());
-    let codec = DefaultLogicalExtensionCodec {};
+    let codec: Arc<dyn LogicalExtensionCodec> = (&udtf.logical_codec).into();
 
     let proto_filters = rresult_return!(LogicalExprList::decode(args.as_ref()));
 
-    let args =
-        rresult_return!(parse_exprs(proto_filters.expr.iter(), ctx.as_ref(), &codec));
+    let args = rresult_return!(parse_exprs(
+        proto_filters.expr.iter(),
+        ctx.as_ref(),
+        codec.as_ref()
+    ));
 
     let table_provider = rresult_return!(udtf_inner.call(&args));
     RResult::ROk(FFI_TableProvider::new(
@@ -196,9 +199,9 @@ impl From<FFI_TableFunction> for Arc<dyn TableFunctionImpl> {
 
 impl TableFunctionImpl for ForeignTableFunction {
     fn call(&self, args: &[Expr]) -> Result<Arc<dyn TableProvider>> {
-        let codec = DefaultLogicalExtensionCodec {};
+        let codec: Arc<dyn LogicalExtensionCodec> = (&self.0.logical_codec).into();
         let expr_list = LogicalExprList {
-            expr: serialize_exprs(args, &codec)?,
+            expr: serialize_exprs(args, codec.as_ref())?,
         };
         let filters_serialized = expr_list.encode_to_vec().into();
 
