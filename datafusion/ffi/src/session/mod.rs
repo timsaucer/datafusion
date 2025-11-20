@@ -42,10 +42,7 @@ use datafusion_proto::bytes::{logical_plan_from_bytes, logical_plan_to_bytes};
 use datafusion_proto::logical_plan::from_proto::parse_expr;
 use datafusion_proto::logical_plan::to_proto::serialize_expr;
 use datafusion_proto::logical_plan::DefaultLogicalExtensionCodec;
-use datafusion_proto::physical_plan::from_proto::parse_physical_expr;
-use datafusion_proto::physical_plan::to_proto::serialize_physical_expr;
-use datafusion_proto::physical_plan::DefaultPhysicalExtensionCodec;
-use datafusion_proto::protobuf::{LogicalExprNode, PhysicalExprNode};
+use datafusion_proto::protobuf::LogicalExprNode;
 use datafusion_session::Session;
 use prost::Message;
 use tokio::runtime::Handle;
@@ -53,6 +50,7 @@ use tokio::runtime::Handle;
 use crate::arrow_wrappers::WrappedSchema;
 use crate::execution::{FFI_TaskContext, FFI_TaskContextProvider};
 use crate::execution_plan::FFI_ExecutionPlan;
+use crate::physical_expr::FFI_PhysicalExpr;
 use crate::session::config::FFI_SessionConfig;
 use crate::udaf::FFI_AggregateUDF;
 use crate::udf::FFI_ScalarUDF;
@@ -80,7 +78,8 @@ pub struct FFI_Session {
         &Self,
         expr_serialized: RVec<u8>,
         schema: WrappedSchema,
-    ) -> RResult<RVec<u8>, RString>,
+    )
+        -> RResult<FFI_PhysicalExpr, RString>,
 
     pub scalar_functions: unsafe extern "C" fn(&Self) -> RHashMap<RString, FFI_ScalarUDF>,
 
@@ -174,7 +173,7 @@ unsafe extern "C" fn create_physical_expr_fn_wrapper(
     session: &FFI_Session,
     expr_serialized: RVec<u8>,
     schema: WrappedSchema,
-) -> RResult<RVec<u8>, RString> {
+) -> RResult<FFI_PhysicalExpr, RString> {
     let session = session.inner();
 
     let codec = DefaultLogicalExtensionCodec {};
@@ -186,9 +185,6 @@ unsafe extern "C" fn create_physical_expr_fn_wrapper(
 
     let physical_expr =
         rresult_return!(session.create_physical_expr(logical_expr, &schema));
-    let codec = DefaultPhysicalExtensionCodec {};
-    let physical_expr =
-        rresult_return!(serialize_physical_expr(&physical_expr, &codec)).encode_to_vec();
 
     RResult::ROk(physical_expr.into())
 }
@@ -480,18 +476,7 @@ impl Session for ForeignSession {
                 schema
             ))?;
 
-            let physical_expr = PhysicalExprNode::decode(physical_expr.as_slice())
-                .map_err(|err| DataFusionError::External(Box::new(err)))?;
-
-            let codec = DefaultPhysicalExtensionCodec {};
-            let physical_expr = parse_physical_expr(
-                &physical_expr,
-                self.task_ctx().as_ref(),
-                df_schema.as_arrow(),
-                &codec,
-            )?;
-
-            Ok(physical_expr)
+            Ok((&physical_expr).into())
         }
     }
 
