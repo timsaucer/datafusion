@@ -17,7 +17,6 @@
 
 //! [`SessionContext`] API for registering data sources and executing queries
 
-use std::any::Any;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::{Arc, Weak};
@@ -100,7 +99,8 @@ use datafusion_optimizer::analyzer::type_coercion::TypeCoercion;
 use datafusion_optimizer::simplify_expressions::ExprSimplifier;
 use datafusion_optimizer::{Analyzer, OptimizerContext};
 use datafusion_optimizer::{AnalyzerRule, OptimizerRule};
-use datafusion_session::{Session, SessionStore};
+pub use datafusion_session::QueryPlanner;
+use datafusion_session::SessionStore;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -2187,17 +2187,6 @@ impl From<SessionContext> for SessionStateBuilder {
     }
 }
 
-/// A planner used to add extensions to DataFusion logical and physical plans.
-#[async_trait]
-pub trait QueryPlanner: Any + Debug {
-    /// Given a [`LogicalPlan`], create an [`ExecutionPlan`] suitable for execution
-    async fn create_physical_plan(
-        &self,
-        logical_plan: &LogicalPlan,
-        session: &dyn Session,
-    ) -> Result<Arc<dyn ExecutionPlan>>;
-}
-
 /// Interface for handling `CREATE FUNCTION` statements and interacting with
 /// [SessionState] to create and register functions ([`ScalarUDF`],
 /// [`AggregateUDF`], [`WindowUDF`], and [`TableFunctionImpl`]) dynamically.
@@ -2395,6 +2384,7 @@ mod tests {
     use crate::physical_planner::PhysicalPlanner;
     use async_trait::async_trait;
     use datafusion_expr::planner::TypePlanner;
+    use datafusion_session::Session;
     use sqlparser::ast;
     use tempfile::TempDir;
 
