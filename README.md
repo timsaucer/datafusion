@@ -171,4 +171,5 @@ using [Dependabot] PRs.
 [dependabot]: https://docs.github.com/en/code-security/dependabot/working-with-dependabot
 
 Adding a minor line for stack 1.
+Adding a minor line for stack 2.
 
