@@ -169,3 +169,6 @@ using [Dependabot] PRs.
 
 [guidance]: https://blog.rust-lang.org/2023/08/29/committing-lockfiles.html
 [dependabot]: https://docs.github.com/en/code-security/dependabot/working-with-dependabot
+
+Adding a minor line for stack 1.
+
